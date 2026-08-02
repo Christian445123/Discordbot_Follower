@@ -9,10 +9,11 @@ sein. Discord erzwingt bei Text-Channel-Namen Kleinschreibung und ersetzt
 Leerzeichen durch Bindestriche - fuer eine lesbare Anzeige mit Emoji,
 Doppelpunkt und Tausenderpunkt funktioniert das nur bei Voice/Stage-Channels.
 
-Jeder erfolgreiche Abruf wird zusaetzlich in einer MySQL-Datenbank dokumentiert
-(Tabelle `follower_history`, wird beim ersten Start automatisch angelegt).
-Ueber den Slash-Command `/statistik social` zeigt der Bot die aktuellen Zahlen
-sowie die Entwicklung der letzten 24 Stunden und 7 Tage an.
+Jeder erfolgreiche Abruf wird zusaetzlich in MySQL dokumentiert - pro Plattform
+eine eigene Tabelle (`instagram_history`, `tiktok_history`, `youtube_history`,
+`twitch_history`), wird beim ersten Start automatisch angelegt. Ueber den
+Slash-Command `/statistik social` zeigt der Bot die aktuellen Zahlen sowie die
+Entwicklung der letzten 24 Stunden und 7 Tage an.
 
 ## Dateien
 
@@ -167,11 +168,35 @@ wenn das fehlschlaegt.
 
 ## Datenbank: Tabellen entstehen automatisch
 
-Es ist keine manuelle SQL-Ausfuehrung noetig. `db.py` legt die Tabelle
-`follower_history` beim allerersten Verbindungsaufbau selbst an
-(`CREATE TABLE IF NOT EXISTS`). Vorausgesetzt ist nur, dass die Datenbank
-selbst (`DB_NAME`, hier `followerDB`) bereits existiert und der konfigurierte
-Benutzer Schreibrechte darauf hat - beides ist bei euch bereits eingerichtet.
+Es ist keine manuelle SQL-Ausfuehrung noetig. `db.py` legt beim allerersten
+Verbindungsaufbau selbst eine Tabelle pro Plattform an (`CREATE TABLE IF NOT
+EXISTS`): `instagram_history`, `tiktok_history`, `youtube_history`,
+`twitch_history` - jeweils mit den Spalten `id`, `count`, `recorded_at`.
+Vorausgesetzt ist nur, dass die Datenbank selbst (`DB_NAME`, hier
+`followerDB`) bereits existiert und der konfigurierte Benutzer Schreib-/
+Create-Table-Rechte darauf hat.
+
+Verbindungsfehler wie `(2059, "Authentication plugin '...' not configured")`
+sind kein Tabellen-Problem, sondern ein Auth-Plugin-Mismatch zwischen dem
+MySQL-User und dem Python-Client - siehe naechster Abschnitt.
+
+### Troubleshooting: Auth-Plugin-Fehler (Error 2059)
+
+`aiomysql`/PyMySQL unterstuetzt u. a. `mysql_native_password` und
+`caching_sha2_password`, aber keine exotischeren Plugins wie `auth_gssapi_client`.
+Pruefen, welches Plugin der konfigurierte User tatsaechlich nutzt:
+
+```sql
+SELECT user, host, plugin FROM mysql.user WHERE user='<DB_USER>';
+```
+
+Falls dort etwas anderes als `mysql_native_password`/`caching_sha2_password`
+steht, per `ALTER USER` korrigieren (Host-Teil an das Ergebnis oben anpassen):
+
+```sql
+ALTER USER '<DB_USER>'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '<DB_PASSWORD>';
+FLUSH PRIVILEGES;
+```
 
 ## Hinweise
 
