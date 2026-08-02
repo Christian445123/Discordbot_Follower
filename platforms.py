@@ -12,7 +12,7 @@ import re
 
 import aiohttp
 
-logger = logging.getLogger("follower-bot.platforms")
+logger = logging.getLogger("follower-bot.updates.platforms")
 
 MOBILE_UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "

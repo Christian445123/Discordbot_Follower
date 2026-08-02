@@ -31,6 +31,10 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger("follower-bot")
+# Eigener Namespace fuer alles rund um Follower-Abrufe/Channel-Updates, damit
+# sich das per Filter in einen separaten Discord-Channel leiten laesst (siehe
+# DiscordLogHandler/on_ready). platforms.py haengt sich als Kind hier ein.
+update_logger = logging.getLogger("follower-bot.updates")
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -48,8 +52,23 @@ def format_channel_name(emoji: str, label: str, count: int) -> str:
     return f"{emoji} {label}: {count:,}".replace(",", ".")
 
 
+class _NamespaceFilter(logging.Filter):
+    """Laesst nur (bzw. explizit nicht) Log-Eintraege eines Logger-Namespaces
+    durch - damit ein Handler, der am 'follower-bot'-Logger haengt, trotzdem
+    nur fuer einen Teilbereich (z. B. 'follower-bot.updates') zustaendig ist."""
+
+    def __init__(self, prefix: str, exclude: bool = False):
+        super().__init__()
+        self.prefix = prefix
+        self.exclude = exclude
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        matches = record.name == self.prefix or record.name.startswith(self.prefix + ".")
+        return not matches if self.exclude else matches
+
+
 class DiscordLogHandler(logging.Handler):
-    """Spiegelt WARNING+ Log-Eintraege zusaetzlich in einen Discord-Channel.
+    """Spiegelt Log-Eintraege zusaetzlich in einen Discord-Channel.
 
     Wird nur an den 'follower-bot'-Logger gehaengt (siehe on_ready), daher
     landen hier ausschliesslich unsere eigenen Meldungen, nie discord.py-
@@ -57,8 +76,8 @@ class DiscordLogHandler(logging.Handler):
     falls das Senden selbst fehlschlaegt.
     """
 
-    def __init__(self, bot: commands.Bot, channel_id: int):
-        super().__init__(level=logging.WARNING)
+    def __init__(self, bot: commands.Bot, channel_id: int, level: int):
+        super().__init__(level=level)
         self.bot = bot
         self.channel_id = channel_id
 
@@ -84,24 +103,26 @@ class DiscordLogHandler(logging.Handler):
 async def rename_channel(guild: discord.Guild, channel_id: int, new_name: str) -> None:
     channel = guild.get_channel(channel_id)
     if channel is None:
-        logger.warning("Channel %s nicht gefunden (falsche ID oder Bot nicht auf dem Server?)", channel_id)
+        update_logger.warning("Channel %s nicht gefunden (falsche ID oder Bot nicht auf dem Server?)", channel_id)
         return
     if channel.name == new_name:
         return  # keine Aenderung noetig -> kein API-Call
     try:
         await channel.edit(name=new_name)
-        logger.info("Channel %s aktualisiert -> %s", channel_id, new_name)
+        update_logger.info("Channel %s aktualisiert -> %s", channel_id, new_name)
     except discord.Forbidden:
-        logger.error("Fehlende 'Manage Channels'-Berechtigung fuer Channel %s", channel_id)
+        update_logger.error("Fehlende 'Manage Channels'-Berechtigung fuer Channel %s", channel_id)
     except discord.HTTPException as e:
-        logger.warning("Konnte Channel %s nicht umbenennen: %s", channel_id, e)
+        update_logger.warning("Konnte Channel %s nicht umbenennen: %s", channel_id, e)
 
 
 @tasks.loop(seconds=config.UPDATE_INTERVAL)
 async def update_followers() -> None:
     guild = bot.get_guild(config.GUILD_ID)
     if guild is None:
-        logger.warning("Guild %s nicht gefunden. Ist GUILD_ID korrekt und der Bot auf dem Server?", config.GUILD_ID)
+        update_logger.warning(
+            "Guild %s nicht gefunden. Ist GUILD_ID korrekt und der Bot auf dem Server?", config.GUILD_ID
+        )
         return
 
     async with aiohttp.ClientSession() as session:
@@ -111,7 +132,7 @@ async def update_followers() -> None:
                 await db.record("instagram", count)
                 await rename_channel(guild, config.INSTAGRAM.channel_id, format_channel_name("📸", "Instagram", count))
             except Exception as e:
-                logger.warning("Instagram-Update fehlgeschlagen: %s", e)
+                update_logger.warning("Instagram-Update fehlgeschlagen: %s", e)
 
         if config.TIKTOK.enabled:
             try:
@@ -119,7 +140,7 @@ async def update_followers() -> None:
                 await db.record("tiktok", count)
                 await rename_channel(guild, config.TIKTOK.channel_id, format_channel_name("🎵", "TikTok", count))
             except Exception as e:
-                logger.warning("TikTok-Update fehlgeschlagen: %s", e)
+                update_logger.warning("TikTok-Update fehlgeschlagen: %s", e)
 
         if config.YOUTUBE.enabled:
             try:
@@ -127,7 +148,7 @@ async def update_followers() -> None:
                 await db.record("youtube", count)
                 await rename_channel(guild, config.YOUTUBE.channel_id, format_channel_name("▶️", "YouTube", count))
             except Exception as e:
-                logger.warning("YouTube-Update fehlgeschlagen: %s", e)
+                update_logger.warning("YouTube-Update fehlgeschlagen: %s", e)
 
         if config.TWITCH.enabled:
             try:
@@ -135,7 +156,7 @@ async def update_followers() -> None:
                 await db.record("twitch", count)
                 await rename_channel(guild, config.TWITCH.channel_id, format_channel_name("🟣", "Twitch", count))
             except Exception as e:
-                logger.warning("Twitch-Update fehlgeschlagen: %s", e)
+                update_logger.warning("Twitch-Update fehlgeschlagen: %s", e)
 
 
 @update_followers.before_loop
@@ -197,9 +218,20 @@ async def on_ready() -> None:
     logger.info("Aktive Plattformen: %s", ", ".join(enabled) if enabled else "keine (siehe .env)")
 
     if config.CHANNEL_ID_LOG and not _discord_log_attached:
-        handler = DiscordLogHandler(bot, config.CHANNEL_ID_LOG)
-        handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-        logger.addHandler(handler)
+        discord_level = getattr(logging, config.LOG_LEVEL, logging.INFO)
+        formatter = logging.Formatter("%(levelname)s [%(name)s]: %(message)s")
+        follower_channel_id = config.CHANNEL_ID_LOG_FOLLOWER or config.CHANNEL_ID_LOG
+
+        general_handler = DiscordLogHandler(bot, config.CHANNEL_ID_LOG, level=discord_level)
+        general_handler.setFormatter(formatter)
+        general_handler.addFilter(_NamespaceFilter("follower-bot.updates", exclude=True))
+        logger.addHandler(general_handler)
+
+        updates_handler = DiscordLogHandler(bot, follower_channel_id, level=discord_level)
+        updates_handler.setFormatter(formatter)
+        updates_handler.addFilter(_NamespaceFilter("follower-bot.updates"))
+        logger.addHandler(updates_handler)
+
         _discord_log_attached = True
         channel = bot.get_channel(config.CHANNEL_ID_LOG)
         if channel is not None:

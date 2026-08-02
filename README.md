@@ -135,8 +135,9 @@ einfachste Weg, trotzdem in denselben Channel zu posten.
 | `GUILD_ID` | Server-ID |
 | `UPDATE_INTERVAL` | Sekunden zwischen Updates (Default 14400 = 4 Std.) |
 | `LOG_LEVEL` | z. B. `INFO` oder `DEBUG` |
-| `CHANNEL_ID_LOG` | Text-Channel, in den Warnungen/Fehler des Bots gespiegelt werden (0 = deaktiviert) |
+| `CHANNEL_ID_LOG` | Text-Channel fuer allgemeine Bot-Logs (Start, Sync, Warnungen/Fehler - 0 = deaktiviert) |
 | `DISCORD_LOG_WEBHOOK_URL` | Webhook desselben Channels, genutzt von `deploy.sh` |
+| `CHANNEL_ID_LOG_FOLLOWER` | Optionaler separater Channel nur fuer Follower-Update-Logs (0 = `CHANNEL_ID_LOG` mitbenutzen) |
 | `CHANNEL_ID_INSTAGRAM`, `INSTAGRAM_USERNAME` | Instagram-Channel + Benutzername |
 | `CHANNEL_ID_TIKTOK`, `TIKTOK_USERNAME` | TikTok-Channel + Benutzername |
 | `CHANNEL_ID_YOUTUBE`, `YOUTUBE_CHANNEL_ID` | YouTube-Channel + Kanal-ID |
@@ -145,15 +146,24 @@ einfachste Weg, trotzdem in denselben Channel zu posten.
 
 ## Discord-Log-Channel
 
-Der Bot und `deploy.sh` nutzen denselben Text-Channel als zentrales Log:
+Der Bot spiegelt seine Logs live nach Discord - aufgeteilt in zwei Kategorien:
 
-- **Der Bot** (`CHANNEL_ID_LOG`) sendet eine Startmeldung nach jedem
-  (Neu-)Start sowie alle WARNING/ERROR-Logs (fehlgeschlagene Follower-Abrufe,
-  fehlende Berechtigungen). Normale erfolgreiche Updates werden bewusst NICHT
-  gespiegelt, um den Channel nicht zuzuspammen - die vollstaendigen Logs gibt
-  es weiterhin via `pm2 logs follower-bot`.
-- **`deploy.sh`** (`DISCORD_LOG_WEBHOOK_URL`, siehe oben) meldet dorthin, wenn
-  ein automatisches Update eingespielt wurde - oder wenn das fehlschlaegt.
+- **Allgemein** (`CHANNEL_ID_LOG`): Start-Meldung nach jedem (Neu-)Start,
+  Slash-Command-Sync, sowie alles andere, was nicht zu einem Follower-Update
+  gehoert.
+- **Follower-Updates** (`CHANNEL_ID_LOG_FOLLOWER`, faellt auf `CHANNEL_ID_LOG`
+  zurueck wenn nicht gesetzt): jede erfolgreiche Channel-Umbenennung sowie
+  fehlgeschlagene Follower-Abrufe pro Plattform. Zwei Channels konfigurieren,
+  wenn man diese Meldungen getrennt von den allgemeinen Bot-Logs haben moechte.
+
+Beide folgen `LOG_LEVEL` - bei `LOG_LEVEL=DEBUG` landen z. B. auch Details zu
+einzelnen Abrufversuchen (etwa "Instagram API Status 429, nutze Fallback") in
+Discord, nicht nur in `pm2 logs follower-bot`. Fuer den Normalbetrieb reicht
+`LOG_LEVEL=INFO`.
+
+`deploy.sh` (`DISCORD_LOG_WEBHOOK_URL`, siehe oben) meldet zusaetzlich in den
+allgemeinen Channel, wenn ein automatisches Update eingespielt wurde - oder
+wenn das fehlschlaegt.
 
 ## Datenbank: Tabellen entstehen automatisch
 
