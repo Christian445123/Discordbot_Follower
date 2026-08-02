@@ -1,0 +1,12 @@
+{
+  "name": "discordbot-follower",
+  "version": "1.0.0",
+  "description": "Discord Bot fuer Instagram/TikTok/YouTube/Twitch Follower-Anzeige",
+  "private": true,
+  "scripts": {
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:restart": "pm2 restart follower-bot",
+    "pm2:stop": "pm2 stop follower-bot",
+    "pm2:logs": "pm2 logs follower-bot"
+  }
+}
