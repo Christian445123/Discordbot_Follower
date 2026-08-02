@@ -23,6 +23,7 @@ Entwicklung der letzten 24 Stunden und 7 Tage an.
 | `config.py` | Liest alle Einstellungen aus `.env` |
 | `platforms.py` | Abruf der Follower-/Abonnentenzahlen je Plattform |
 | `db.py` | Speichert jeden Abruf in MySQL und liest den Verlauf fuer `/statistik social` |
+| `schema.sql` | Optionales manuelles SQL-Setup (identisch zu dem, was `db.py` automatisch anlegt) |
 | `ecosystem.config.js` | PM2-Konfiguration fuer den Dauerbetrieb auf dem Server |
 | `deploy.sh` | Holt per Cron periodisch neue Commits und startet den Bot bei Aenderungen neu |
 
@@ -175,6 +176,14 @@ EXISTS`): `instagram_history`, `tiktok_history`, `youtube_history`,
 Vorausgesetzt ist nur, dass die Datenbank selbst (`DB_NAME`, hier
 `followerDB`) bereits existiert und der konfigurierte Benutzer Schreib-/
 Create-Table-Rechte darauf hat.
+
+Wer die Tabellen trotzdem vorab manuell anlegen moechte (z. B. um Rechte
+unabhaengig vom Bot zu testen), findet die identischen `CREATE TABLE`-
+Statements in `schema.sql`:
+
+```bash
+mysql -h 127.0.0.1 -P 3306 -u viennastaterpfollower -p followerDB < schema.sql
+```
 
 Verbindungsfehler wie `(2059, "Authentication plugin '...' not configured")`
 sind kein Tabellen-Problem, sondern ein Auth-Plugin-Mismatch zwischen dem
