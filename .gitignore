@@ -5,4 +5,3 @@ logs/
 .env
 *.log
 node_modules/
-follower_stats.db

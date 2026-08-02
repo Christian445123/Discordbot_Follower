@@ -9,10 +9,10 @@ sein. Discord erzwingt bei Text-Channel-Namen Kleinschreibung und ersetzt
 Leerzeichen durch Bindestriche - fuer eine lesbare Anzeige mit Emoji,
 Doppelpunkt und Tausenderpunkt funktioniert das nur bei Voice/Stage-Channels.
 
-Jeder erfolgreiche Abruf wird zusaetzlich in einer lokalen SQLite-Datenbank
-(`follower_stats.db`) dokumentiert. Ueber den Slash-Command `/statistik social`
-zeigt der Bot die aktuellen Zahlen sowie die Entwicklung der letzten 24 Stunden
-und 7 Tage an.
+Jeder erfolgreiche Abruf wird zusaetzlich in einer MySQL-Datenbank dokumentiert
+(Tabelle `follower_history`, wird beim ersten Start automatisch angelegt).
+Ueber den Slash-Command `/statistik social` zeigt der Bot die aktuellen Zahlen
+sowie die Entwicklung der letzten 24 Stunden und 7 Tage an.
 
 ## Dateien
 
@@ -21,7 +21,7 @@ und 7 Tage an.
 | `bot.py` | Hauptprogramm: startet den Bot, aktualisiert die Channels, stellt `/statistik social` bereit |
 | `config.py` | Liest alle Einstellungen aus `.env` |
 | `platforms.py` | Abruf der Follower-/Abonnentenzahlen je Plattform |
-| `db.py` | Speichert jeden Abruf in `follower_stats.db` (SQLite) und liest den Verlauf fuer `/statistik social` |
+| `db.py` | Speichert jeden Abruf in MySQL und liest den Verlauf fuer `/statistik social` |
 | `twitch_auth.py` | Einmaliges Setup-Skript fuer den Twitch-Login |
 | `ecosystem.config.js` | PM2-Konfiguration fuer den Dauerbetrieb auf dem Server |
 
@@ -104,6 +104,7 @@ python bot.py
 | `CHANNEL_ID_TIKTOK`, `TIKTOK_USERNAME` | TikTok-Channel + Benutzername |
 | `CHANNEL_ID_YOUTUBE`, `YOUTUBE_API_KEY`, `YOUTUBE_CHANNEL_ID` | YouTube-Channel + API-Key + Kanal-ID |
 | `CHANNEL_ID_TWITCH`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_BROADCASTER_LOGIN`, `TWITCH_REFRESH_TOKEN` | Twitch-Channel + App-Zugangsdaten |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Zugangsdaten der MySQL-Datenbank fuer die Statistik-Historie |
 
 ## Hinweise
 
