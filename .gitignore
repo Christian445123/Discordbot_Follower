@@ -5,3 +5,4 @@ logs/
 .env
 *.log
 node_modules/
+platforms.py
