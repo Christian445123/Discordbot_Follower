@@ -24,6 +24,7 @@ sowie die Entwicklung der letzten 24 Stunden und 7 Tage an.
 | `db.py` | Speichert jeden Abruf in MySQL und liest den Verlauf fuer `/statistik social` |
 | `twitch_auth.py` | Einmaliges Setup-Skript fuer den Twitch-Login |
 | `ecosystem.config.js` | PM2-Konfiguration fuer den Dauerbetrieb auf dem Server |
+| `deploy.sh` | Holt per Cron periodisch neue Commits und startet den Bot bei Aenderungen neu |
 
 Jede Plattform ist unabhaengig: Ist ihre Channel-ID (oder ein anderer
 Pflichtwert) nicht gesetzt, wird sie automatisch uebersprungen.
@@ -88,8 +89,33 @@ Der Bot erneuert den Access-Token danach automatisch - dieser Schritt ist nur ei
 
 ### 5. Starten
 
+```bash
+pm2 start ecosystem.config.js
+pm2 save
 ```
-python bot.py
+
+### 6. Automatische Updates per Cron (deploy.sh)
+
+`deploy.sh` holt neue Commits vom `main`-Branch und startet den Bot per PM2
+nur dann neu, wenn es tatsaechlich Aenderungen gab (fast-forward-only, damit
+ein Server mit lokalen Handaenderungen nicht stillschweigend ueberschrieben
+wird - der Lauf bricht in dem Fall einfach ab und loggt das nach `logs/deploy.log`).
+
+```bash
+chmod +x deploy.sh   # nur beim allerersten Mal noetig
+crontab -e
+```
+
+Zeile eintragen (prueft alle 5 Minuten auf Updates, Pfad anpassen):
+
+```
+*/5 * * * * /pfad/zu/Discordbot_Follower/deploy.sh
+```
+
+Intervall nach Bedarf aendern (z. B. `*/15` fuer alle 15 Minuten). Logs dazu:
+
+```bash
+tail -f logs/deploy.log
 ```
 
 ## Konfigurationsuebersicht
@@ -100,11 +126,22 @@ python bot.py
 | `GUILD_ID` | Server-ID |
 | `UPDATE_INTERVAL` | Sekunden zwischen Updates (Default 14400 = 4 Std.) |
 | `LOG_LEVEL` | z. B. `INFO` oder `DEBUG` |
+| `CHANNEL_ID_LOG` | Text-Channel, in den Warnungen/Fehler des Bots gespiegelt werden (0 = deaktiviert) |
 | `CHANNEL_ID_INSTAGRAM`, `INSTAGRAM_USERNAME` | Instagram-Channel + Benutzername |
 | `CHANNEL_ID_TIKTOK`, `TIKTOK_USERNAME` | TikTok-Channel + Benutzername |
 | `CHANNEL_ID_YOUTUBE`, `YOUTUBE_API_KEY`, `YOUTUBE_CHANNEL_ID` | YouTube-Channel + API-Key + Kanal-ID |
 | `CHANNEL_ID_TWITCH`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_BROADCASTER_LOGIN`, `TWITCH_REFRESH_TOKEN` | Twitch-Channel + App-Zugangsdaten |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Zugangsdaten der MySQL-Datenbank fuer die Statistik-Historie |
+
+## Discord-Log-Channel
+
+Setzt man `CHANNEL_ID_LOG` (ein normaler Text-Channel), sendet der Bot dorthin:
+- eine Startmeldung nach jedem (Neu-)Start (praktisch, um automatische
+  Deploys ueber `deploy.sh` zu bestaetigen),
+- alle WARNING/ERROR-Logs (z. B. fehlgeschlagene Follower-Abrufe, fehlende
+  Berechtigungen). Normale erfolgreiche Updates werden bewusst NICHT
+  gespiegelt, um den Channel nicht zuzuspammen - dafuer gibt es weiterhin
+  die vollstaendigen Logs via `pm2 logs follower-bot`.
 
 ## Hinweise
 

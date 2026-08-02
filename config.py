@@ -25,6 +25,9 @@ GUILD_ID = _int("GUILD_ID")
 UPDATE_INTERVAL = _int("UPDATE_INTERVAL", 14400)  # Sekunden, Default 4 Stunden
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
+# Text-Channel, in den Warnungen/Fehler des Bots gespiegelt werden (0 = deaktiviert)
+CHANNEL_ID_LOG = _int("CHANNEL_ID_LOG")
+
 
 @dataclass
 class InstagramConfig:

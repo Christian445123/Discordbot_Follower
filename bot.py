@@ -14,6 +14,7 @@ Stage-Channels sein.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -51,6 +52,39 @@ PLATFORM_INFO = (
 
 def format_channel_name(emoji: str, label: str, count: int) -> str:
     return f"{emoji} {label}: {count:,}".replace(",", ".")
+
+
+class DiscordLogHandler(logging.Handler):
+    """Spiegelt WARNING+ Log-Eintraege zusaetzlich in einen Discord-Channel.
+
+    Wird nur an den 'follower-bot'-Logger gehaengt (siehe on_ready), daher
+    landen hier ausschliesslich unsere eigenen Meldungen, nie discord.py-
+    interne Logs - das vermeidet Spam und eine moegliche Endlosschleife,
+    falls das Senden selbst fehlschlaegt.
+    """
+
+    def __init__(self, bot: commands.Bot, channel_id: int):
+        super().__init__(level=logging.WARNING)
+        self.bot = bot
+        self.channel_id = channel_id
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = self.format(record)
+        except Exception:
+            return
+        asyncio.create_task(self._send(message))
+
+    async def _send(self, message: str) -> None:
+        channel = self.bot.get_channel(self.channel_id)
+        if channel is None:
+            return
+        if len(message) > 1900:
+            message = message[:1900] + "…"
+        try:
+            await channel.send(f"```{message}```")
+        except discord.HTTPException:
+            pass
 
 
 async def rename_channel(guild: discord.Guild, channel_id: int, new_name: str) -> None:
@@ -160,14 +194,24 @@ async def statistik_social(interaction: discord.Interaction) -> None:
 bot.tree.add_command(statistik_group)
 
 _commands_synced = False
+_discord_log_attached = False
 
 
 @bot.event
 async def on_ready() -> None:
-    global _commands_synced
+    global _commands_synced, _discord_log_attached
     logger.info("Eingeloggt als %s (ID: %s)", bot.user, bot.user.id if bot.user else "?")
     enabled = [label for _, _, label, cfg in PLATFORM_INFO if cfg.enabled]
     logger.info("Aktive Plattformen: %s", ", ".join(enabled) if enabled else "keine (siehe .env)")
+
+    if config.CHANNEL_ID_LOG and not _discord_log_attached:
+        handler = DiscordLogHandler(bot, config.CHANNEL_ID_LOG)
+        handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+        logger.addHandler(handler)
+        _discord_log_attached = True
+        channel = bot.get_channel(config.CHANNEL_ID_LOG)
+        if channel is not None:
+            await channel.send(f"🟢 Bot gestartet (aktive Plattformen: {', '.join(enabled) or 'keine'}).")
 
     if not _commands_synced:
         try:
