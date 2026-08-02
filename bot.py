@@ -35,12 +35,6 @@ logger = logging.getLogger("follower-bot")
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-twitch_client = (
-    platforms.TwitchClient(config.TWITCH.client_id, config.TWITCH.client_secret, config.TWITCH.refresh_token)
-    if config.TWITCH.enabled
-    else None
-)
-
 # (db_key, Emoji, Anzeigename, Config) - eine Stelle fuer alle Plattform-Metadaten
 PLATFORM_INFO = (
     ("instagram", "📸", "Instagram", config.INSTAGRAM),
@@ -129,17 +123,15 @@ async def update_followers() -> None:
 
         if config.YOUTUBE.enabled:
             try:
-                count = await platforms.fetch_youtube_subscribers(
-                    session, config.YOUTUBE.api_key, config.YOUTUBE.youtube_channel_id
-                )
+                count = await platforms.fetch_youtube_subscribers(session, config.YOUTUBE.youtube_channel_id)
                 await db.record("youtube", count)
                 await rename_channel(guild, config.YOUTUBE.channel_id, format_channel_name("▶️", "YouTube", count))
             except Exception as e:
                 logger.warning("YouTube-Update fehlgeschlagen: %s", e)
 
-        if twitch_client is not None:
+        if config.TWITCH.enabled:
             try:
-                count = await twitch_client.fetch_followers(session, config.TWITCH.broadcaster_login)
+                count = await platforms.fetch_twitch_followers(session, config.TWITCH.broadcaster_login)
                 await db.record("twitch", count)
                 await rename_channel(guild, config.TWITCH.channel_id, format_channel_name("🟣", "Twitch", count))
             except Exception as e:

@@ -22,7 +22,6 @@ sowie die Entwicklung der letzten 24 Stunden und 7 Tage an.
 | `config.py` | Liest alle Einstellungen aus `.env` |
 | `platforms.py` | Abruf der Follower-/Abonnentenzahlen je Plattform |
 | `db.py` | Speichert jeden Abruf in MySQL und liest den Verlauf fuer `/statistik social` |
-| `twitch_auth.py` | Einmaliges Setup-Skript fuer den Twitch-Login |
 | `ecosystem.config.js` | PM2-Konfiguration fuer den Dauerbetrieb auf dem Server |
 | `deploy.sh` | Holt per Cron periodisch neue Commits und startet den Bot bei Aenderungen neu |
 
@@ -64,28 +63,28 @@ GUILD_ID=...
 
 ### 4. Plattformen konfigurieren
 
-**Instagram / TikTok** — kein offizielles kostenloses API vorhanden, daher
-liest der Bot die oeffentliche Profilseite aus (Scraping). Einfach
-Channel-ID + Benutzername in der `.env` eintragen. Kann bei Layout-Aenderungen
-der Plattformen brechen; in dem Fall bitte melden, damit `platforms.py`
-angepasst wird.
+Keine der vier Plattformen braucht einen API-Key, Developer-Account oder
+OAuth-Setup - ueberall genuegt Channel-ID + Benutzername/Login in der `.env`.
+Das macht die Einrichtung einfach, heisst aber auch: alle vier Quellen lesen
+oeffentliche Seiten/inoffizielle Endpunkte aus und koennen brechen, wenn die
+jeweilige Plattform ihr Format aendert oder den Zugriff blockiert. In dem
+Fall bitte melden, damit `platforms.py` angepasst wird.
 
-**YouTube** — offizielle YouTube Data API v3:
-1. Projekt in der [Google Cloud Console](https://console.cloud.google.com/) anlegen.
-2. "YouTube Data API v3" aktivieren (APIs & Services → Library).
-3. Unter "Credentials" einen API-Key erstellen.
-4. `YOUTUBE_API_KEY` und `YOUTUBE_CHANNEL_ID` (die Channel-ID beginnt meist mit `UC...`, zu finden ueber die Kanal-URL oder https://commentpicker.com/youtube-channel-id.php) in die `.env` eintragen.
+**Instagram / TikTok** — liest die oeffentliche Profilseite aus.
 
-**Twitch** — Followerzahlen sind seit 2023 nur mit einem User-Access-Token
-des Broadcasters abrufbar (Scope `moderator:read:followers`), ein einfacher
-App-Token reicht nicht mehr. Einmaliges Setup:
-1. App in der [Twitch Developer Console](https://dev.twitch.tv/console/apps) anlegen.
-2. Als OAuth Redirect URL exakt `http://localhost:17563/callback` eintragen.
-3. `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` und `TWITCH_BROADCASTER_LOGIN` in die `.env` eintragen.
-4. `python twitch_auth.py` ausfuehren, im Browser mit dem Streamer-Account einloggen.
-5. Den ausgegebenen `TWITCH_REFRESH_TOKEN` in die `.env` eintragen.
+**YouTube** — liest ueber YouTubes eigenes internes "InnerTube"-Browse-API
+(dieselbe Schnittstelle, die die Web-Oberflaeche selbst nutzt), kein
+API-Key noetig. `YOUTUBE_CHANNEL_ID` (beginnt meist mit `UC...`, zu finden
+ueber die Kanal-URL oder https://commentpicker.com/youtube-channel-id.php)
+in die `.env` eintragen. Hat der Kanal unter seinen Einstellungen die Option
+"Abonnentenzahl nicht anzeigen" aktiviert, liefert weder dieser Weg noch die
+offizielle Data API einen Wert - das ist eine Kanal-Privatsphaere-Einstellung,
+keine Einschraenkung des Bots.
 
-Der Bot erneuert den Access-Token danach automatisch - dieser Schritt ist nur einmalig noetig.
+**Twitch** — liest ueber [decapi.me](https://decapi.me/) (ein oeffentlicher,
+inoffizieller Wrapper um die Twitch-API), kein Developer-App/OAuth-Setup
+noetig. Einfach `TWITCH_BROADCASTER_LOGIN` (Twitch-Login-Name, ohne @) in
+die `.env` eintragen.
 
 ### 5. Starten
 
@@ -118,6 +117,16 @@ Intervall nach Bedarf aendern (z. B. `*/15` fuer alle 15 Minuten). Logs dazu:
 tail -f logs/deploy.log
 ```
 
+Optional meldet `deploy.sh` gefundene Updates zusaetzlich in den Discord-Log-Channel
+(siehe unten) - dafuer `DISCORD_LOG_WEBHOOK_URL` in der `.env` setzen:
+1. Im Ziel-Text-Channel (derselbe wie `CHANNEL_ID_LOG`): Kanal-Einstellungen
+   → Integrationen → Webhooks → Neuer Webhook.
+2. Die "Webhook-URL kopieren" und als `DISCORD_LOG_WEBHOOK_URL` in die `.env` eintragen.
+
+Das ist noetig, weil `deploy.sh` als eigenstaendiges Cron-Skript laeuft, ohne
+Zugriff auf den Bot-Prozess/dessen Discord-Verbindung - ein Webhook ist der
+einfachste Weg, trotzdem in denselben Channel zu posten.
+
 ## Konfigurationsuebersicht
 
 | Variable | Beschreibung |
@@ -127,27 +136,40 @@ tail -f logs/deploy.log
 | `UPDATE_INTERVAL` | Sekunden zwischen Updates (Default 14400 = 4 Std.) |
 | `LOG_LEVEL` | z. B. `INFO` oder `DEBUG` |
 | `CHANNEL_ID_LOG` | Text-Channel, in den Warnungen/Fehler des Bots gespiegelt werden (0 = deaktiviert) |
+| `DISCORD_LOG_WEBHOOK_URL` | Webhook desselben Channels, genutzt von `deploy.sh` |
 | `CHANNEL_ID_INSTAGRAM`, `INSTAGRAM_USERNAME` | Instagram-Channel + Benutzername |
 | `CHANNEL_ID_TIKTOK`, `TIKTOK_USERNAME` | TikTok-Channel + Benutzername |
-| `CHANNEL_ID_YOUTUBE`, `YOUTUBE_API_KEY`, `YOUTUBE_CHANNEL_ID` | YouTube-Channel + API-Key + Kanal-ID |
-| `CHANNEL_ID_TWITCH`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_BROADCASTER_LOGIN`, `TWITCH_REFRESH_TOKEN` | Twitch-Channel + App-Zugangsdaten |
+| `CHANNEL_ID_YOUTUBE`, `YOUTUBE_CHANNEL_ID` | YouTube-Channel + Kanal-ID |
+| `CHANNEL_ID_TWITCH`, `TWITCH_BROADCASTER_LOGIN` | Twitch-Channel + Login-Name |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Zugangsdaten der MySQL-Datenbank fuer die Statistik-Historie |
 
 ## Discord-Log-Channel
 
-Setzt man `CHANNEL_ID_LOG` (ein normaler Text-Channel), sendet der Bot dorthin:
-- eine Startmeldung nach jedem (Neu-)Start (praktisch, um automatische
-  Deploys ueber `deploy.sh` zu bestaetigen),
-- alle WARNING/ERROR-Logs (z. B. fehlgeschlagene Follower-Abrufe, fehlende
-  Berechtigungen). Normale erfolgreiche Updates werden bewusst NICHT
-  gespiegelt, um den Channel nicht zuzuspammen - dafuer gibt es weiterhin
-  die vollstaendigen Logs via `pm2 logs follower-bot`.
+Der Bot und `deploy.sh` nutzen denselben Text-Channel als zentrales Log:
+
+- **Der Bot** (`CHANNEL_ID_LOG`) sendet eine Startmeldung nach jedem
+  (Neu-)Start sowie alle WARNING/ERROR-Logs (fehlgeschlagene Follower-Abrufe,
+  fehlende Berechtigungen). Normale erfolgreiche Updates werden bewusst NICHT
+  gespiegelt, um den Channel nicht zuzuspammen - die vollstaendigen Logs gibt
+  es weiterhin via `pm2 logs follower-bot`.
+- **`deploy.sh`** (`DISCORD_LOG_WEBHOOK_URL`, siehe oben) meldet dorthin, wenn
+  ein automatisches Update eingespielt wurde - oder wenn das fehlschlaegt.
+
+## Datenbank: Tabellen entstehen automatisch
+
+Es ist keine manuelle SQL-Ausfuehrung noetig. `db.py` legt die Tabelle
+`follower_history` beim allerersten Verbindungsaufbau selbst an
+(`CREATE TABLE IF NOT EXISTS`). Vorausgesetzt ist nur, dass die Datenbank
+selbst (`DB_NAME`, hier `followerDB`) bereits existiert und der konfigurierte
+Benutzer Schreibrechte darauf hat - beides ist bei euch bereits eingerichtet.
 
 ## Hinweise
 
-- Scraping-basierte Quellen (Instagram, TikTok) sind inoffiziell und koennen
-  jederzeit durch Layout-Aenderungen der Plattform brechen.
+- Instagram, TikTok, YouTube und Twitch werden alle ueber inoffizielle/
+  oeffentliche Wege ausgelesen (kein API-Key/OAuth noetig) - das macht das
+  Setup einfach, kann aber jederzeit brechen, wenn eine Plattform ihr Format
+  aendert oder den Zugriff blockiert.
 - Discord limitiert Namensaenderungen pro Channel auf 2 pro 10 Minuten - bei
   einem `UPDATE_INTERVAL` von mehreren Stunden (Default) ist das kein Thema.
-- Tokens (`DISCORD_TOKEN`, `TWITCH_CLIENT_SECRET`, `TWITCH_REFRESH_TOKEN`,
-  `YOUTUBE_API_KEY`) niemals oeffentlich teilen oder committen.
+- Tokens (`DISCORD_TOKEN`, `DB_PASSWORD`, `DISCORD_LOG_WEBHOOK_URL`) niemals
+  oeffentlich teilen oder committen.

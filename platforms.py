@@ -7,10 +7,8 @@ Fehler pro Plattform ab und ueberspringen den jeweiligen Update-Zyklus.
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
-from typing import Optional
 
 import aiohttp
 
@@ -89,91 +87,48 @@ async def fetch_tiktok_followers(session: aiohttp.ClientSession, username: str) 
 
 
 # ---------------- YouTube ----------------
-async def fetch_youtube_subscribers(session: aiohttp.ClientSession, api_key: str, channel_id: str) -> int:
-    """Offizielle YouTube Data API v3 (kostenloser API-Key genuegt)."""
-    url = "https://www.googleapis.com/youtube/v3/channels"
-    params = {"part": "statistics", "id": channel_id, "key": api_key}
-    async with session.get(url, params=params, timeout=REQUEST_TIMEOUT) as resp:
-        resp.raise_for_status()
-        data = await resp.json()
+# Oeffentlicher Web-Client-Schluessel, der in jeder YouTube-Seite eingebettet ist -
+# kein Google-Account/API-Key noetig, jeder Browser nutzt denselben.
+_YOUTUBE_INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+_YOUTUBE_BROWSE_URL = f"https://www.youtube.com/youtubei/v1/browse?key={_YOUTUBE_INNERTUBE_KEY}"
 
-    items = data.get("items") or []
-    if not items:
-        raise RuntimeError(f"YouTube: Channel '{channel_id}' nicht gefunden")
-    return int(items[0]["statistics"]["subscriberCount"])
+
+async def fetch_youtube_subscribers(session: aiohttp.ClientSession, channel_id: str) -> int:
+    """Fragt YouTubes internes 'InnerTube'-Browse-API direkt ab (dieselbe API, die
+    die Web-Oberflaeche selbst nutzt) - liefert JSON ohne Cookie-Consent-Wall und
+    ohne API-Key-Setup.
+
+    Hat der Kanal die Option 'Abonnentenzahl nicht anzeigen' aktiviert, enthaelt
+    die Antwort keine Zahl - das betrifft dann auch die offizielle Data API."""
+    payload = {
+        "context": {"client": {"clientName": "WEB", "clientVersion": "2.20240101.00.00", "hl": "en", "gl": "US"}},
+        "browseId": channel_id,
+    }
+    async with session.post(
+        _YOUTUBE_BROWSE_URL, json=payload, headers={"Content-Type": "application/json"}, timeout=REQUEST_TIMEOUT
+    ) as resp:
+        resp.raise_for_status()
+        text = await resp.text()
+
+    match = re.search(r'"content":\s*"([\d.,]+\s?[KMB]?)\s*subscribers?"', text, re.IGNORECASE)
+    if not match:
+        raise RuntimeError(
+            f"YouTube: Abonnentenzahl fuer Channel '{channel_id}' nicht gefunden "
+            "(evtl. hat der Kanal die Abonnentenzahl ausgeblendet)"
+        )
+    return _parse_abbreviated_count(match.group(1))
 
 
 # ---------------- Twitch ----------------
-class TwitchClient:
-    """Haelt den Twitch-Access-Token aktuell (per Refresh-Token) und fragt die
-    offizielle Helix-API nach der Follower-Zahl.
+async def fetch_twitch_followers(session: aiohttp.ClientSession, broadcaster_login: str) -> int:
+    """Nutzt decapi.me (inoffizieller, oeffentlicher Wrapper um die Twitch-API) -
+    kein Developer-App/OAuth-Setup noetig. Kann wie jeder Drittanbieter-Dienst
+    ausfallen oder rate-limiten."""
+    url = f"https://decapi.me/twitch/followcount/{broadcaster_login}"
+    async with session.get(url, timeout=REQUEST_TIMEOUT) as resp:
+        resp.raise_for_status()
+        text = (await resp.text()).strip()
 
-    Twitch verlangt seit 2023 fuer Followerzahlen zwingend einen User-Access-Token
-    des Broadcasters (Scope moderator:read:followers) - ein einfacher App-Token
-    reicht nicht mehr. Der Refresh-Token wird einmalig mit twitch_auth.py erzeugt.
-    """
-
-    TOKEN_URL = "https://id.twitch.tv/oauth2/token"
-    API_BASE = "https://api.twitch.tv/helix"
-
-    def __init__(self, client_id: str, client_secret: str, refresh_token: str):
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.refresh_token = refresh_token
-        self._access_token: Optional[str] = None
-        self._broadcaster_id: Optional[str] = None
-
-    async def _refresh_access_token(self, session: aiohttp.ClientSession) -> None:
-        data = {
-            "grant_type": "refresh_token",
-            "refresh_token": self.refresh_token,
-            "client_id": self.client_id,
-            "client_secret": self.client_secret,
-        }
-        async with session.post(self.TOKEN_URL, data=data, timeout=REQUEST_TIMEOUT) as resp:
-            resp.raise_for_status()
-            payload = await resp.json()
-        self._access_token = payload["access_token"]
-        # Twitch rotiert den Refresh-Token bei jedem Refresh
-        self.refresh_token = payload.get("refresh_token", self.refresh_token)
-        logger.debug("Twitch Access-Token erneuert")
-
-    def _headers(self) -> dict:
-        return {"Client-Id": self.client_id, "Authorization": f"Bearer {self._access_token}"}
-
-    async def _get_broadcaster_id(self, session: aiohttp.ClientSession, login: str) -> str:
-        if self._broadcaster_id:
-            return self._broadcaster_id
-        async with session.get(
-            f"{self.API_BASE}/users", params={"login": login}, headers=self._headers(), timeout=REQUEST_TIMEOUT
-        ) as resp:
-            resp.raise_for_status()
-            payload = await resp.json()
-        entries = payload.get("data") or []
-        if not entries:
-            raise RuntimeError(f"Twitch: Benutzer '{login}' nicht gefunden")
-        self._broadcaster_id = entries[0]["id"]
-        return self._broadcaster_id
-
-    async def fetch_followers(self, session: aiohttp.ClientSession, broadcaster_login: str) -> int:
-        if not self._access_token:
-            await self._refresh_access_token(session)
-
-        broadcaster_id = await self._get_broadcaster_id(session, broadcaster_login)
-        url = f"{self.API_BASE}/channels/followers"
-        params = {"broadcaster_id": broadcaster_id}
-
-        async with session.get(url, params=params, headers=self._headers(), timeout=REQUEST_TIMEOUT) as resp:
-            if resp.status == 401:
-                # Access-Token abgelaufen -> einmal erneuern und erneut versuchen
-                await self._refresh_access_token(session)
-                async with session.get(
-                    url, params=params, headers=self._headers(), timeout=REQUEST_TIMEOUT
-                ) as retry_resp:
-                    retry_resp.raise_for_status()
-                    payload = await retry_resp.json()
-            else:
-                resp.raise_for_status()
-                payload = await resp.json()
-
-        return int(payload["total"])
+    if not text.isdigit():
+        raise RuntimeError(f"Twitch: unerwartete Antwort fuer '{broadcaster_login}': {text!r}")
+    return int(text)

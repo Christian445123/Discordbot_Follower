@@ -52,31 +52,21 @@ class TikTokConfig:
 @dataclass
 class YouTubeConfig:
     channel_id: int
-    api_key: str
     youtube_channel_id: str
 
     @property
     def enabled(self) -> bool:
-        return bool(self.channel_id and self.api_key and self.youtube_channel_id)
+        return bool(self.channel_id and self.youtube_channel_id)
 
 
 @dataclass
 class TwitchConfig:
     channel_id: int
-    client_id: str
-    client_secret: str
-    refresh_token: str
     broadcaster_login: str
 
     @property
     def enabled(self) -> bool:
-        return bool(
-            self.channel_id
-            and self.client_id
-            and self.client_secret
-            and self.refresh_token
-            and self.broadcaster_login
-        )
+        return bool(self.channel_id and self.broadcaster_login)
 
 
 INSTAGRAM = InstagramConfig(
@@ -91,19 +81,13 @@ TIKTOK = TikTokConfig(
 
 YOUTUBE = YouTubeConfig(
     channel_id=_int("CHANNEL_ID_YOUTUBE"),
-    api_key=os.getenv("YOUTUBE_API_KEY", "").strip(),
     youtube_channel_id=os.getenv("YOUTUBE_CHANNEL_ID", "").strip(),
 )
 
 TWITCH = TwitchConfig(
     channel_id=_int("CHANNEL_ID_TWITCH"),
-    client_id=os.getenv("TWITCH_CLIENT_ID", "").strip(),
-    client_secret=os.getenv("TWITCH_CLIENT_SECRET", "").strip(),
-    refresh_token=os.getenv("TWITCH_REFRESH_TOKEN", "").strip(),
     broadcaster_login=os.getenv("TWITCH_BROADCASTER_LOGIN", "").lstrip("@").strip(),
 )
-
-TWITCH_REDIRECT_URI = os.getenv("TWITCH_REDIRECT_URI", "http://localhost:17563/callback")
 
 # ---------------- Datenbank (MySQL) ----------------
 DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
