@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from typing import Optional
 
 import aiohttp
 import discord
@@ -67,8 +68,31 @@ class _NamespaceFilter(logging.Filter):
         return not matches if self.exclude else matches
 
 
+def _chunk_lines(lines: list[str], limit: int = 1900) -> list[str]:
+    """Fasst Zeilen zu moeglichst wenigen Bloecken bis 'limit' Zeichen zusammen."""
+    chunks: list[str] = []
+    current = ""
+    for line in lines:
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > limit and current:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 class DiscordLogHandler(logging.Handler):
     """Spiegelt Log-Eintraege zusaetzlich in einen Discord-Channel.
+
+    Buendelt alle Eintraege, die innerhalb von FLUSH_INTERVAL Sekunden
+    reinkommen, zu EINER Nachricht statt vieler Einzel-Sends. Ohne das wuerde
+    ein Burst (z. B. Start + erster Update-Zyklus mit mehreren Plattformen)
+    zig einzelne channel.send()-Aufrufe gleichzeitig ausloesen - Discord
+    erlaubt aber nur ~5 Nachrichten/5s pro Channel, der Rest wird von
+    discord.py intern verzoegert nachgereicht ('schleppendes' Log).
 
     Wird nur an den 'follower-bot'-Logger gehaengt (siehe on_ready), daher
     landen hier ausschliesslich unsere eigenen Meldungen, nie discord.py-
@@ -76,28 +100,38 @@ class DiscordLogHandler(logging.Handler):
     falls das Senden selbst fehlschlaegt.
     """
 
+    FLUSH_INTERVAL = 1.0
+
     def __init__(self, bot: commands.Bot, channel_id: int, level: int):
         super().__init__(level=level)
         self.bot = bot
         self.channel_id = channel_id
+        self._buffer: list[str] = []
+        self._flush_task: Optional[asyncio.Task] = None
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
             message = self.format(record)
         except Exception:
             return
-        asyncio.create_task(self._send(message))
+        self._buffer.append(message)
+        if self._flush_task is None or self._flush_task.done():
+            self._flush_task = asyncio.create_task(self._flush_after_delay())
 
-    async def _send(self, message: str) -> None:
+    async def _flush_after_delay(self) -> None:
+        await asyncio.sleep(self.FLUSH_INTERVAL)
+        if not self._buffer:
+            return
+        lines, self._buffer = self._buffer, []
+
         channel = self.bot.get_channel(self.channel_id)
         if channel is None:
             return
-        if len(message) > 1900:
-            message = message[:1900] + "…"
-        try:
-            await channel.send(f"```{message}```")
-        except discord.HTTPException:
-            pass
+        for chunk in _chunk_lines(lines):
+            try:
+                await channel.send(f"```{chunk}```")
+            except discord.HTTPException:
+                pass
 
 
 async def rename_channel(guild: discord.Guild, channel_id: int, new_name: str) -> None:
@@ -116,8 +150,12 @@ async def rename_channel(guild: discord.Guild, channel_id: int, new_name: str) -
         update_logger.warning("Konnte Channel %s nicht umbenennen: %s", channel_id, e)
 
 
-@tasks.loop(seconds=config.UPDATE_INTERVAL)
-async def update_followers() -> None:
+async def sync_followers() -> None:
+    """Fragt alle aktivierten Plattformen ab und aktualisiert Channels + DB.
+
+    Wird sowohl vom periodischen Task (update_followers) als auch vom
+    manuellen Slash-Command /syncfollower aufgerufen.
+    """
     guild = bot.get_guild(config.GUILD_ID)
     if guild is None:
         update_logger.warning(
@@ -159,20 +197,18 @@ async def update_followers() -> None:
                 update_logger.warning("Twitch-Update fehlgeschlagen: %s", e)
 
 
+@tasks.loop(seconds=config.UPDATE_INTERVAL)
+async def update_followers() -> None:
+    await sync_followers()
+
+
 @update_followers.before_loop
 async def before_update_followers() -> None:
     await bot.wait_until_ready()
 
 
-# ---------------- Slash-Command: /statistik social ----------------
-statistik_group = discord.app_commands.Group(name="statistik", description="Statistiken des Servers")
-
-
-@statistik_group.command(name="social", description="Zeigt die aktuellen Social-Media-Zahlen und ihre Entwicklung")
-async def statistik_social(interaction: discord.Interaction) -> None:
-    await interaction.response.defer()
-
-    embed = discord.Embed(title="📊 Social Media Statistik", color=discord.Color.blurple())
+async def build_statistik_embed(title: str = "📊 Social Media Statistik") -> discord.Embed:
+    embed = discord.Embed(title=title, color=discord.Color.blurple())
     now = int(time.time())
     has_data = False
 
@@ -201,10 +237,49 @@ async def statistik_social(interaction: discord.Interaction) -> None:
     if not has_data:
         embed.description = "Noch keine Statistikdaten vorhanden - der erste Update-Zyklus muss zuerst durchlaufen."
 
+    return embed
+
+
+# ---------------- Slash-Command: /statistik social ----------------
+statistik_group = discord.app_commands.Group(name="statistik", description="Statistiken des Servers")
+
+
+@statistik_group.command(name="social", description="Zeigt die aktuellen Social-Media-Zahlen und ihre Entwicklung")
+async def statistik_social(interaction: discord.Interaction) -> None:
+    await interaction.response.defer()
+    embed = await build_statistik_embed()
     await interaction.followup.send(embed=embed)
 
 
 bot.tree.add_command(statistik_group)
+
+
+# ---------------- Slash-Command: /syncfollower ----------------
+@bot.tree.command(name="syncfollower", description="Aktualisiert alle Follower-Zahlen sofort, statt auf das naechste Intervall zu warten")
+@discord.app_commands.default_permissions(manage_channels=True)
+@discord.app_commands.checks.has_permissions(manage_channels=True)
+@discord.app_commands.checks.cooldown(1, 300, key=lambda i: i.guild_id)
+async def syncfollower(interaction: discord.Interaction) -> None:
+    await interaction.response.defer()
+    await sync_followers()
+    embed = await build_statistik_embed(title="🔄 Follower-Sync abgeschlossen")
+    await interaction.followup.send(embed=embed)
+
+
+@syncfollower.error
+async def syncfollower_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError) -> None:
+    if isinstance(error, discord.app_commands.CommandOnCooldown):
+        await interaction.response.send_message(
+            f"⏳ Bitte warte noch {error.retry_after:.0f}s, bevor du erneut manuell synchronisierst.",
+            ephemeral=True,
+        )
+    elif isinstance(error, discord.app_commands.MissingPermissions):
+        await interaction.response.send_message(
+            "❌ Dafuer fehlt dir die Berechtigung 'Manage Channels'.", ephemeral=True
+        )
+    else:
+        update_logger.error("Unerwarteter Fehler bei /syncfollower: %s", error)
+        raise error
 
 _commands_synced = False
 _discord_log_attached = False
