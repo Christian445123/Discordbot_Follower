@@ -1,8 +1,8 @@
 # Follower-Stats Discord-Bot
 
-Zeigt Instagram-, TikTok-, YouTube- und Twitch-Follower/Abonnenten live auf
-Discord-Channels an. Jede Plattform bekommt einen eigenen Channel, dessen
-Name periodisch aktualisiert wird (z. B. `📸 Instagram: 12.345`).
+Zeigt Instagram- und TikTok-Follower live auf Discord-Channels an. Jede
+Plattform bekommt einen eigenen Channel, dessen Name periodisch aktualisiert
+wird (z. B. `📸 Instagram: 12.345`).
 
 Wichtig: Die konfigurierten Channels muessen **Voice- oder Stage-Channels**
 sein. Discord erzwingt bei Text-Channel-Namen Kleinschreibung und ersetzt
@@ -10,8 +10,8 @@ Leerzeichen durch Bindestriche - fuer eine lesbare Anzeige mit Emoji,
 Doppelpunkt und Tausenderpunkt funktioniert das nur bei Voice/Stage-Channels.
 
 Jeder erfolgreiche Abruf wird zusaetzlich in MySQL dokumentiert - pro Plattform
-eine eigene Tabelle (`instagram_history`, `tiktok_history`, `youtube_history`,
-`twitch_history`), wird beim ersten Start automatisch angelegt. Ueber den
+eine eigene Tabelle (`instagram_history`, `tiktok_history`), wird beim ersten
+Start automatisch angelegt. Ueber den
 Slash-Command `/statistik social` zeigt der Bot die aktuellen Zahlen sowie die
 Entwicklung der letzten 24 Stunden und 7 Tage an. `/syncfollower` stoesst
 einen sofortigen Abruf aller Plattformen an, statt auf das naechste
