@@ -154,14 +154,16 @@ Der Bot spiegelt seine Logs live nach Discord - aufgeteilt in zwei Kategorien:
   Slash-Command-Sync, sowie alles andere, was nicht zu einem Follower-Update
   gehoert.
 - **Follower-Updates** (`CHANNEL_ID_LOG_FOLLOWER`, faellt auf `CHANNEL_ID_LOG`
-  zurueck wenn nicht gesetzt): jede erfolgreiche Channel-Umbenennung sowie
-  fehlgeschlagene Follower-Abrufe pro Plattform. Zwei Channels konfigurieren,
-  wenn man diese Meldungen getrennt von den allgemeinen Bot-Logs haben moechte.
+  zurueck wenn nicht gesetzt): Start/Ende jedes Update-Zyklus, Verbindungsaufbau
+  und Ergebnis je Plattform ("Instagram: verbinde zu ...", "Instagram: 15
+  Follower ermittelt"), jede Channel-Umbenennung (oder "keine Aenderung
+  noetig") sowie fehlgeschlagene Abrufe. Zwei Channels konfigurieren, wenn man
+  diese Meldungen getrennt von den allgemeinen Bot-Logs haben moechte.
 
-Beide folgen `LOG_LEVEL` - bei `LOG_LEVEL=DEBUG` landen z. B. auch Details zu
-einzelnen Abrufversuchen (etwa "Instagram API Status 429, nutze Fallback") in
-Discord, nicht nur in `pm2 logs follower-bot`. Fuer den Normalbetrieb reicht
-`LOG_LEVEL=INFO`.
+Beide folgen `LOG_LEVEL`: `INFO` zeigt die genannten Meilensteine
+(Verbindungsaufbau, Ergebnis, Zyklus-Grenzen), `DEBUG` zusaetzlich technische
+Details wie einzelne Fallback-Versuche oder HTTP-Statuscodes - sowohl in
+Discord als auch in `pm2 logs follower-bot`.
 
 Eintraege, die innerhalb derselben Sekunde anfallen (z. B. der Burst aus
 Start-Logs + erstem Update-Zyklus), werden zu einer Nachricht gebuendelt statt

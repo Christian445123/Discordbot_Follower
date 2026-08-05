@@ -60,17 +60,21 @@ async def fetch_instagram_followers(session: aiohttp.ClientSession, username: st
     if cookie:
         headers["Cookie"] = cookie
 
+    logger.info("Instagram: verbinde zu i.instagram.com fuer '%s' ...", username)
     api_url = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
     try:
         async with session.get(api_url, headers=headers, timeout=REQUEST_TIMEOUT) as resp:
             if resp.status == 200:
                 data = await resp.json(content_type=None)
-                return int(data["data"]["user"]["edge_followed_by"]["count"])
-            logger.debug("Instagram web_profile_info Status %s, nutze HTML-Fallback", resp.status)
+                count = int(data["data"]["user"]["edge_followed_by"]["count"])
+                logger.info("Instagram: %s Follower ermittelt (API)", count)
+                return count
+            logger.debug("Instagram: API-Status %s, nutze HTML-Fallback", resp.status)
     except Exception as e:
-        logger.debug("Instagram web_profile_info fehlgeschlagen: %s", e)
+        logger.debug("Instagram: API-Versuch fehlgeschlagen (%s), nutze HTML-Fallback", e)
 
     # Fallback: Followerzahl aus dem og:description Meta-Tag der Profilseite lesen
+    logger.info("Instagram: verbinde zu www.instagram.com/%s/ (Fallback) ...", username)
     profile_url = f"https://www.instagram.com/{username}/"
     html_headers = {"User-Agent": MOBILE_UA}
     if cookie:
@@ -82,21 +86,28 @@ async def fetch_instagram_followers(session: aiohttp.ClientSession, username: st
             )
         resp.raise_for_status()
         html = await resp.text()
+    logger.debug("Instagram: Profilseite geladen (%s Zeichen), lese Followerzahl aus", len(html))
     match = re.search(r'content="([\d.,]+\s?[KMB]?) Followers', html, re.IGNORECASE)
     if not match:
         raise RuntimeError(f"Instagram: Followerzahl fuer '{username}' nicht gefunden")
-    return _parse_abbreviated_count(match.group(1))
+    count = _parse_abbreviated_count(match.group(1))
+    logger.info("Instagram: %s Follower ermittelt (HTML-Fallback)", count)
+    return count
 
 
 # ---------------- TikTok ----------------
 async def fetch_tiktok_followers(session: aiohttp.ClientSession, username: str) -> int:
     """TikTok hat keine oeffentliche Follower-API, daher Auslesen der Profilseite."""
+    logger.info("TikTok: verbinde zu www.tiktok.com/@%s ...", username)
     url = f"https://www.tiktok.com/@{username}"
     async with session.get(url, headers={"User-Agent": DESKTOP_UA}, timeout=REQUEST_TIMEOUT) as resp:
         resp.raise_for_status()
         html = await resp.text()
 
+    logger.debug("TikTok: Profilseite geladen (%s Zeichen), lese Followerzahl aus", len(html))
     match = re.search(r'"followerCount":(\d+)', html)
     if not match:
         raise RuntimeError(f"TikTok: Followerzahl fuer '{username}' nicht gefunden")
-    return int(match.group(1))
+    count = int(match.group(1))
+    logger.info("TikTok: %s Follower ermittelt", count)
+    return count

@@ -138,6 +138,7 @@ async def rename_channel(guild: discord.Guild, channel_id: int, new_name: str) -
         update_logger.warning("Channel %s nicht gefunden (falsche ID oder Bot nicht auf dem Server?)", channel_id)
         return
     if channel.name == new_name:
+        update_logger.info("Channel %s bereits aktuell (%s), keine Aenderung noetig", channel_id, new_name)
         return  # keine Aenderung noetig -> kein API-Call
     try:
         await channel.edit(name=new_name)
@@ -161,6 +162,8 @@ async def sync_followers() -> None:
         )
         return
 
+    update_logger.info("Update-Zyklus gestartet")
+
     async with aiohttp.ClientSession() as session:
         if config.INSTAGRAM.enabled:
             try:
@@ -168,6 +171,7 @@ async def sync_followers() -> None:
                     session, config.INSTAGRAM.username, cookie=config.INSTAGRAM.cookie
                 )
                 await db.record("instagram", count)
+                update_logger.debug("Instagram: %s in DB gespeichert, aktualisiere Channel", count)
                 await rename_channel(guild, config.INSTAGRAM.channel_id, format_channel_name("📸", "Instagram", count))
             except Exception as e:
                 update_logger.warning("Instagram-Update fehlgeschlagen: %s", e)
@@ -176,9 +180,12 @@ async def sync_followers() -> None:
             try:
                 count = await platforms.fetch_tiktok_followers(session, config.TIKTOK.username)
                 await db.record("tiktok", count)
+                update_logger.debug("TikTok: %s in DB gespeichert, aktualisiere Channel", count)
                 await rename_channel(guild, config.TIKTOK.channel_id, format_channel_name("🎵", "TikTok", count))
             except Exception as e:
                 update_logger.warning("TikTok-Update fehlgeschlagen: %s", e)
+
+    update_logger.info("Update-Zyklus abgeschlossen")
 
 
 @tasks.loop(seconds=config.UPDATE_INTERVAL)
