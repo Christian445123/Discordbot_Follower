@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Discord-Bot: zeigt Instagram-, TikTok-, YouTube- und Twitch-Follower auf
-Discord-Channels an, indem er deren Namen periodisch aktualisiert.
+"""Discord-Bot: zeigt Instagram- und TikTok-Follower auf Discord-Channels an,
+indem er deren Namen periodisch aktualisiert.
 
 Jede Plattform ist unabhaengig konfigurierbar (eigene Channel-ID in .env) und
 wird uebersprungen, wenn sie nicht vollstaendig konfiguriert ist. Discord.py
@@ -44,8 +44,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 PLATFORM_INFO = (
     ("instagram", "📸", "Instagram", config.INSTAGRAM),
     ("tiktok", "🎵", "TikTok", config.TIKTOK),
-    ("youtube", "▶️", "YouTube", config.YOUTUBE),
-    ("twitch", "🟣", "Twitch", config.TWITCH),
 )
 
 
@@ -179,22 +177,6 @@ async def sync_followers() -> None:
                 await rename_channel(guild, config.TIKTOK.channel_id, format_channel_name("🎵", "TikTok", count))
             except Exception as e:
                 update_logger.warning("TikTok-Update fehlgeschlagen: %s", e)
-
-        if config.YOUTUBE.enabled:
-            try:
-                count = await platforms.fetch_youtube_subscribers(session, config.YOUTUBE.youtube_channel_id)
-                await db.record("youtube", count)
-                await rename_channel(guild, config.YOUTUBE.channel_id, format_channel_name("▶️", "YouTube", count))
-            except Exception as e:
-                update_logger.warning("YouTube-Update fehlgeschlagen: %s", e)
-
-        if config.TWITCH.enabled:
-            try:
-                count = await platforms.fetch_twitch_followers(session, config.TWITCH.broadcaster_login)
-                await db.record("twitch", count)
-                await rename_channel(guild, config.TWITCH.channel_id, format_channel_name("🟣", "Twitch", count))
-            except Exception as e:
-                update_logger.warning("Twitch-Update fehlgeschlagen: %s", e)
 
 
 @tasks.loop(seconds=config.UPDATE_INTERVAL)

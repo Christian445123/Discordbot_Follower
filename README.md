@@ -13,7 +13,10 @@ Jeder erfolgreiche Abruf wird zusaetzlich in MySQL dokumentiert - pro Plattform
 eine eigene Tabelle (`instagram_history`, `tiktok_history`, `youtube_history`,
 `twitch_history`), wird beim ersten Start automatisch angelegt. Ueber den
 Slash-Command `/statistik social` zeigt der Bot die aktuellen Zahlen sowie die
-Entwicklung der letzten 24 Stunden und 7 Tage an.
+Entwicklung der letzten 24 Stunden und 7 Tage an. `/syncfollower` stoesst
+einen sofortigen Abruf aller Plattformen an, statt auf das naechste
+`UPDATE_INTERVAL` zu warten (Berechtigung "Manage Channels" noetig, max. 1x
+pro 5 Minuten).
 
 ## Dateien
 
@@ -162,6 +165,12 @@ Beide folgen `LOG_LEVEL` - bei `LOG_LEVEL=DEBUG` landen z. B. auch Details zu
 einzelnen Abrufversuchen (etwa "Instagram API Status 429, nutze Fallback") in
 Discord, nicht nur in `pm2 logs follower-bot`. Fuer den Normalbetrieb reicht
 `LOG_LEVEL=INFO`.
+
+Eintraege, die innerhalb derselben Sekunde anfallen (z. B. der Burst aus
+Start-Logs + erstem Update-Zyklus), werden zu einer Nachricht gebuendelt statt
+als viele Einzel-Sends verschickt - sonst wuerde Discords Rate-Limit
+(~5 Nachrichten/5s pro Channel) einen Teil der Meldungen verzoegert
+nachreichen und das Log wirkt "schleppend".
 
 `deploy.sh` (`DISCORD_LOG_WEBHOOK_URL`, siehe oben) meldet zusaetzlich in den
 allgemeinen Channel, wenn ein automatisches Update eingespielt wurde - oder

@@ -2,10 +2,10 @@
 """Speichert jeden erfolgreichen Follower-Abruf in MySQL, damit sich per
 /statistik social ein Verlauf anzeigen laesst.
 
-Pro Plattform gibt es eine eigene Tabelle (instagram_history, tiktok_history,
-youtube_history, twitch_history), jeweils mit denselben Spalten (id, count,
-recorded_at). Alle Tabellen werden beim ersten Verbindungsaufbau automatisch
-angelegt - keine manuelle SQL-Ausfuehrung noetig.
+Pro Plattform gibt es eine eigene Tabelle (instagram_history, tiktok_history),
+jeweils mit denselben Spalten (id, count, recorded_at). Alle Tabellen werden
+beim ersten Verbindungsaufbau automatisch angelegt - keine manuelle
+SQL-Ausfuehrung noetig.
 
 Der Connection-Pool wird beim ersten Aufruf lazy aufgebaut (kein separater
 Init-Schritt in bot.py noetig) und danach wiederverwendet.
@@ -27,8 +27,6 @@ import config
 _TABLES = {
     "instagram": "instagram_history",
     "tiktok": "tiktok_history",
-    "youtube": "youtube_history",
-    "twitch": "twitch_history",
 }
 
 _pool: Optional[aiomysql.Pool] = None

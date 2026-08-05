@@ -21,17 +21,3 @@ CREATE TABLE IF NOT EXISTS tiktok_history (
     recorded_at BIGINT NOT NULL,
     KEY idx_recorded_at (recorded_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS youtube_history (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    count BIGINT NOT NULL,
-    recorded_at BIGINT NOT NULL,
-    KEY idx_recorded_at (recorded_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS twitch_history (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    count BIGINT NOT NULL,
-    recorded_at BIGINT NOT NULL,
-    KEY idx_recorded_at (recorded_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

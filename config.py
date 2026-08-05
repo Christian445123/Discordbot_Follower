@@ -51,26 +51,6 @@ class TikTokConfig:
         return bool(self.channel_id and self.username)
 
 
-@dataclass
-class YouTubeConfig:
-    channel_id: int
-    youtube_channel_id: str
-
-    @property
-    def enabled(self) -> bool:
-        return bool(self.channel_id and self.youtube_channel_id)
-
-
-@dataclass
-class TwitchConfig:
-    channel_id: int
-    broadcaster_login: str
-
-    @property
-    def enabled(self) -> bool:
-        return bool(self.channel_id and self.broadcaster_login)
-
-
 INSTAGRAM = InstagramConfig(
     channel_id=_int("CHANNEL_ID_INSTAGRAM"),
     username=os.getenv("INSTAGRAM_USERNAME", "").lstrip("@").strip(),
@@ -79,16 +59,6 @@ INSTAGRAM = InstagramConfig(
 TIKTOK = TikTokConfig(
     channel_id=_int("CHANNEL_ID_TIKTOK"),
     username=os.getenv("TIKTOK_USERNAME", "").lstrip("@").strip(),
-)
-
-YOUTUBE = YouTubeConfig(
-    channel_id=_int("CHANNEL_ID_YOUTUBE"),
-    youtube_channel_id=os.getenv("YOUTUBE_CHANNEL_ID", "").strip(),
-)
-
-TWITCH = TwitchConfig(
-    channel_id=_int("CHANNEL_ID_TWITCH"),
-    broadcaster_login=os.getenv("TWITCH_BROADCASTER_LOGIN", "").lstrip("@").strip(),
 )
 
 # ---------------- Datenbank (MySQL) ----------------
