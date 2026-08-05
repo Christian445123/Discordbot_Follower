@@ -68,28 +68,12 @@ GUILD_ID=...
 
 ### 4. Plattformen konfigurieren
 
-Keine der vier Plattformen braucht einen API-Key, Developer-Account oder
-OAuth-Setup - ueberall genuegt Channel-ID + Benutzername/Login in der `.env`.
-Das macht die Einrichtung einfach, heisst aber auch: alle vier Quellen lesen
-oeffentliche Seiten/inoffizielle Endpunkte aus und koennen brechen, wenn die
-jeweilige Plattform ihr Format aendert oder den Zugriff blockiert. In dem
-Fall bitte melden, damit `platforms.py` angepasst wird.
-
-**Instagram / TikTok** — liest die oeffentliche Profilseite aus.
-
-**YouTube** — liest ueber YouTubes eigenes internes "InnerTube"-Browse-API
-(dieselbe Schnittstelle, die die Web-Oberflaeche selbst nutzt), kein
-API-Key noetig. `YOUTUBE_CHANNEL_ID` (beginnt meist mit `UC...`, zu finden
-ueber die Kanal-URL oder https://commentpicker.com/youtube-channel-id.php)
-in die `.env` eintragen. Hat der Kanal unter seinen Einstellungen die Option
-"Abonnentenzahl nicht anzeigen" aktiviert, liefert weder dieser Weg noch die
-offizielle Data API einen Wert - das ist eine Kanal-Privatsphaere-Einstellung,
-keine Einschraenkung des Bots.
-
-**Twitch** — liest ueber [decapi.me](https://decapi.me/) (ein oeffentlicher,
-inoffizieller Wrapper um die Twitch-API), kein Developer-App/OAuth-Setup
-noetig. Einfach `TWITCH_BROADCASTER_LOGIN` (Twitch-Login-Name, ohne @) in
-die `.env` eintragen.
+Weder Instagram noch TikTok brauchen einen API-Key, Developer-Account oder
+OAuth-Setup - beide lesen die oeffentliche Profilseite aus. Einfach Channel-ID
++ Benutzername in der `.env` eintragen. Das macht die Einrichtung einfach,
+heisst aber auch: beide Quellen koennen brechen, wenn die jeweilige Plattform
+ihr Seitenformat aendert oder den Zugriff blockiert. In dem Fall bitte melden,
+damit `platforms.py` angepasst wird.
 
 ### 5. Starten
 
@@ -145,8 +129,6 @@ einfachste Weg, trotzdem in denselben Channel zu posten.
 | `CHANNEL_ID_LOG_FOLLOWER` | Optionaler separater Channel nur fuer Follower-Update-Logs (0 = `CHANNEL_ID_LOG` mitbenutzen) |
 | `CHANNEL_ID_INSTAGRAM`, `INSTAGRAM_USERNAME` | Instagram-Channel + Benutzername |
 | `CHANNEL_ID_TIKTOK`, `TIKTOK_USERNAME` | TikTok-Channel + Benutzername |
-| `CHANNEL_ID_YOUTUBE`, `YOUTUBE_CHANNEL_ID` | YouTube-Channel + Kanal-ID |
-| `CHANNEL_ID_TWITCH`, `TWITCH_BROADCASTER_LOGIN` | Twitch-Channel + Login-Name |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Zugangsdaten der MySQL-Datenbank fuer die Statistik-Historie |
 
 ## Discord-Log-Channel
@@ -180,11 +162,10 @@ wenn das fehlschlaegt.
 
 Es ist keine manuelle SQL-Ausfuehrung noetig. `db.py` legt beim allerersten
 Verbindungsaufbau selbst eine Tabelle pro Plattform an (`CREATE TABLE IF NOT
-EXISTS`): `instagram_history`, `tiktok_history`, `youtube_history`,
-`twitch_history` - jeweils mit den Spalten `id`, `count`, `recorded_at`.
-Vorausgesetzt ist nur, dass die Datenbank selbst (`DB_NAME`, hier
-`followerDB`) bereits existiert und der konfigurierte Benutzer Schreib-/
-Create-Table-Rechte darauf hat.
+EXISTS`): `instagram_history`, `tiktok_history` - jeweils mit den Spalten
+`id`, `count`, `recorded_at`. Vorausgesetzt ist nur, dass die Datenbank selbst
+(`DB_NAME`, hier `followerDB`) bereits existiert und der konfigurierte
+Benutzer Schreib-/Create-Table-Rechte darauf hat.
 
 Wer die Tabellen trotzdem vorab manuell anlegen moechte (z. B. um Rechte
 unabhaengig vom Bot zu testen), findet die identischen `CREATE TABLE`-
@@ -218,10 +199,10 @@ FLUSH PRIVILEGES;
 
 ## Hinweise
 
-- Instagram, TikTok, YouTube und Twitch werden alle ueber inoffizielle/
-  oeffentliche Wege ausgelesen (kein API-Key/OAuth noetig) - das macht das
-  Setup einfach, kann aber jederzeit brechen, wenn eine Plattform ihr Format
-  aendert oder den Zugriff blockiert.
+- Instagram und TikTok werden beide ueber inoffizielle/oeffentliche Wege
+  ausgelesen (kein API-Key/OAuth noetig) - das macht das Setup einfach, kann
+  aber jederzeit brechen, wenn eine Plattform ihr Format aendert oder den
+  Zugriff blockiert.
 - Discord limitiert Namensaenderungen pro Channel auf 2 pro 10 Minuten - bei
   einem `UPDATE_INTERVAL` von mehreren Stunden (Default) ist das kein Thema.
 - Tokens (`DISCORD_TOKEN`, `DB_PASSWORD`, `DISCORD_LOG_WEBHOOK_URL`) niemals
