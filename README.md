@@ -75,6 +75,21 @@ heisst aber auch: beide Quellen koennen brechen, wenn die jeweilige Plattform
 ihr Seitenformat aendert oder den Zugriff blockiert. In dem Fall bitte melden,
 damit `platforms.py` angepasst wird.
 
+**Instagram-Login-Wand bei Server-/Cloud-IPs:** Instagram stuft viele
+Rechenzentrums-IP-Bereiche als verdaechtig ein und leitet anonyme Anfragen auf
+die Login-Seite um (im Bot-Log sichtbar als "auf Login-Seite umgeleitet").
+Falls das passiert, `INSTAGRAM_COOKIE` setzen:
+1. Im Browser normal bei instagram.com einloggen.
+2. DevTools oeffnen (F12) → Tab "Netzwerk"/"Network" → Seite neu laden.
+3. Eine Anfrage an `www.instagram.com` anklicken → bei den Request-Headers
+   den kompletten Wert von `Cookie:` kopieren (die ganze Zeile, nicht nur
+   `sessionid`).
+4. Als `INSTAGRAM_COOKIE` in die `.env` einfuegen.
+
+Der Cookie laeuft nach einiger Zeit ab (typischerweise mehrere Wochen) und
+muss dann erneuert werden - man merkt es daran, dass die Login-Umleitung
+wieder auftaucht.
+
 ### 5. Starten
 
 ```bash
@@ -127,7 +142,7 @@ einfachste Weg, trotzdem in denselben Channel zu posten.
 | `CHANNEL_ID_LOG` | Text-Channel fuer allgemeine Bot-Logs (Start, Sync, Warnungen/Fehler - 0 = deaktiviert) |
 | `DISCORD_LOG_WEBHOOK_URL` | Webhook desselben Channels, genutzt von `deploy.sh` |
 | `CHANNEL_ID_LOG_FOLLOWER` | Optionaler separater Channel nur fuer Follower-Update-Logs (0 = `CHANNEL_ID_LOG` mitbenutzen) |
-| `CHANNEL_ID_INSTAGRAM`, `INSTAGRAM_USERNAME` | Instagram-Channel + Benutzername |
+| `CHANNEL_ID_INSTAGRAM`, `INSTAGRAM_USERNAME`, `INSTAGRAM_COOKIE` | Instagram-Channel + Benutzername + optionaler Login-Cookie (siehe oben) |
 | `CHANNEL_ID_TIKTOK`, `TIKTOK_USERNAME` | TikTok-Channel + Benutzername |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Zugangsdaten der MySQL-Datenbank fuer die Statistik-Historie |
 

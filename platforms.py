@@ -40,18 +40,27 @@ def _parse_abbreviated_count(raw: str) -> int:
 
 
 # ---------------- Instagram ----------------
-async def fetch_instagram_followers(session: aiohttp.ClientSession, username: str) -> int:
+async def fetch_instagram_followers(session: aiohttp.ClientSession, username: str, cookie: str = "") -> int:
     """Instagram hat keine oeffentliche Follower-API. Erster Versuch liefert eine
     exakte Zahl ueber die interne Web-Profil-API; wird der Request geblockt
     (z. B. HTTP 429), lesen wir ersatzweise das og:description-Meta-Tag der
     Profilseite - dort zeigt Instagram ab ca. 1000 Followern nur noch gerundete
-    Werte (z. B. '12K')."""
-    api_url = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
+    Werte (z. B. '12K').
+
+    Ohne angemeldete Session blockt Instagram anonyme Anfragen von manchen
+    IPs (v. a. Rechenzentrums-/Cloud-IPs) komplett und leitet auf die
+    Login-Seite um. Ist ein 'cookie' (kompletter Cookie-Header eines
+    eingeloggten Browsers, siehe README) gesetzt, wird er mitgeschickt, um
+    das zu vermeiden."""
     headers = {
         "User-Agent": MOBILE_UA,
         "X-IG-App-ID": "936619743392459",
         "Accept": "application/json",
     }
+    if cookie:
+        headers["Cookie"] = cookie
+
+    api_url = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
     try:
         async with session.get(api_url, headers=headers, timeout=REQUEST_TIMEOUT) as resp:
             if resp.status == 200:
@@ -63,7 +72,14 @@ async def fetch_instagram_followers(session: aiohttp.ClientSession, username: st
 
     # Fallback: Followerzahl aus dem og:description Meta-Tag der Profilseite lesen
     profile_url = f"https://www.instagram.com/{username}/"
-    async with session.get(profile_url, headers={"User-Agent": MOBILE_UA}, timeout=REQUEST_TIMEOUT) as resp:
+    html_headers = {"User-Agent": MOBILE_UA}
+    if cookie:
+        html_headers["Cookie"] = cookie
+    async with session.get(profile_url, headers=html_headers, timeout=REQUEST_TIMEOUT) as resp:
+        if resp.url.path.startswith("/accounts/login"):
+            raise RuntimeError(
+                "Instagram: auf Login-Seite umgeleitet (IP geblockt) - INSTAGRAM_COOKIE in .env setzen"
+            )
         resp.raise_for_status()
         html = await resp.text()
     match = re.search(r'content="([\d.,]+\s?[KMB]?) Followers', html, re.IGNORECASE)

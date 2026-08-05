@@ -35,6 +35,7 @@ CHANNEL_ID_LOG_FOLLOWER = _int("CHANNEL_ID_LOG_FOLLOWER")
 class InstagramConfig:
     channel_id: int
     username: str
+    cookie: str = ""
 
     @property
     def enabled(self) -> bool:
@@ -54,6 +55,7 @@ class TikTokConfig:
 INSTAGRAM = InstagramConfig(
     channel_id=_int("CHANNEL_ID_INSTAGRAM"),
     username=os.getenv("INSTAGRAM_USERNAME", "").lstrip("@").strip(),
+    cookie=os.getenv("INSTAGRAM_COOKIE", "").strip(),
 )
 
 TIKTOK = TikTokConfig(

@@ -164,7 +164,9 @@ async def sync_followers() -> None:
     async with aiohttp.ClientSession() as session:
         if config.INSTAGRAM.enabled:
             try:
-                count = await platforms.fetch_instagram_followers(session, config.INSTAGRAM.username)
+                count = await platforms.fetch_instagram_followers(
+                    session, config.INSTAGRAM.username, cookie=config.INSTAGRAM.cookie
+                )
                 await db.record("instagram", count)
                 await rename_channel(guild, config.INSTAGRAM.channel_id, format_channel_name("📸", "Instagram", count))
             except Exception as e:
