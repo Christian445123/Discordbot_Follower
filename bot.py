@@ -322,9 +322,40 @@ _commands_synced = False
 _discord_log_attached = False
 
 
+async def ensure_commands_synced() -> None:
+    """Synchronisiert die Slash-Commands fuer die Guild, falls das noch nicht
+    gelungen ist. Wird sowohl von on_ready als auch periodisch von
+    resync_commands_watchdog aufgerufen: on_ready feuert bei einem Gateway-
+    RESUME (kurzer Netz-Hänger, der die Session behaelt) nicht erneut - ohne
+    den periodischen Task wuerde ein einmal fehlgeschlagener Sync dann fuer
+    den Rest der Prozesslaufzeit nie wieder versucht."""
+    global _commands_synced
+    if _commands_synced:
+        return
+    try:
+        guild = discord.Object(id=config.GUILD_ID)
+        bot.tree.copy_global_to(guild=guild)
+        synced = await bot.tree.sync(guild=guild)
+        logger.info("%s Slash-Command(s) fuer Guild %s synchronisiert", len(synced), config.GUILD_ID)
+        _commands_synced = True
+    except Exception as e:
+        logger.error("Slash-Command-Sync fehlgeschlagen, naechster Versuch in wenigen Minuten: %s", e)
+
+
+@tasks.loop(minutes=10)
+async def resync_commands_watchdog() -> None:
+    if not _commands_synced:
+        await ensure_commands_synced()
+
+
+@resync_commands_watchdog.before_loop
+async def before_resync_commands_watchdog() -> None:
+    await bot.wait_until_ready()
+
+
 @bot.event
 async def on_ready() -> None:
-    global _commands_synced, _discord_log_attached
+    global _discord_log_attached
     logger.info("Eingeloggt als %s (ID: %s)", bot.user, bot.user.id if bot.user else "?")
     enabled = [label for _, _, label, cfg in PLATFORM_INFO if cfg.enabled]
     logger.info("Aktive Plattformen: %s", ", ".join(enabled) if enabled else "keine (siehe .env)")
@@ -349,22 +380,12 @@ async def on_ready() -> None:
         if channel is not None:
             await channel.send(f"🟢 Bot gestartet (aktive Plattformen: {', '.join(enabled) or 'keine'}).")
 
-    if not _commands_synced:
-        try:
-            guild = discord.Object(id=config.GUILD_ID)
-            bot.tree.copy_global_to(guild=guild)
-            synced = await bot.tree.sync(guild=guild)
-            logger.info("%s Slash-Command(s) fuer Guild %s synchronisiert", len(synced), config.GUILD_ID)
-            _commands_synced = True
-        except Exception as e:
-            # Bleibt _commands_synced=False, damit der naechste on_ready
-            # (z.B. nach einem Gateway-Reconnect) den Sync erneut versucht -
-            # ohne das wuerden Slash-Commands nach einem fehlgeschlagenen Sync
-            # fuer die gesamte Laufzeit des Prozesses fehlen.
-            logger.error("Slash-Command-Sync fehlgeschlagen, wird beim naechsten Reconnect erneut versucht: %s", e)
+    await ensure_commands_synced()
 
     if not update_followers.is_running():
         update_followers.start()
+    if not resync_commands_watchdog.is_running():
+        resync_commands_watchdog.start()
 
 
 @bot.event
