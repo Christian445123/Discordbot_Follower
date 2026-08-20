@@ -198,34 +198,53 @@ async def before_update_followers() -> None:
     await bot.wait_until_ready()
 
 
+@update_followers.error
+async def update_followers_error(error: BaseException) -> None:
+    # tasks.loop() beendet die Schleife bei einer unbehandelten Exception
+    # dauerhaft (kein automatischer Neustart). sync_followers() faengt bereits
+    # alle Fehler pro Plattform ab, ein Fehler hier ist also unerwartet -
+    # trotzdem neu starten, statt dass Follower-Updates fuer immer stillstehen.
+    update_logger.error("Unerwarteter Fehler im Update-Loop, starte neu: %s", error, exc_info=error)
+    update_followers.restart()
+
+
 async def build_statistik_embed(title: str = "📊 Social Media Statistik") -> discord.Embed:
     embed = discord.Embed(title=title, color=discord.Color.blurple())
     now = int(time.time())
     has_data = False
 
+    db_error = False
     for key, emoji, label, cfg in PLATFORM_INFO:
         if not cfg.enabled:
             continue
 
-        current = await db.latest(key)
-        if current is None:
-            embed.add_field(name=f"{emoji} {label}", value="Noch keine Daten erfasst", inline=False)
-            continue
+        try:
+            current = await db.latest(key)
+            if current is None:
+                embed.add_field(name=f"{emoji} {label}", value="Noch keine Daten erfasst", inline=False)
+                continue
 
-        has_data = True
-        lines = [f"Aktuell: **{current:,}**".replace(",", ".")]
+            has_data = True
+            lines = [f"Aktuell: **{current:,}**".replace(",", ".")]
 
-        day_ago = await db.count_at_or_before(key, now - 24 * 3600)
-        if day_ago is not None:
-            lines.append(f"24h: {current - day_ago:+,}".replace(",", "."))
+            day_ago = await db.count_at_or_before(key, now - 24 * 3600)
+            if day_ago is not None:
+                lines.append(f"24h: {current - day_ago:+,}".replace(",", "."))
 
-        week_ago = await db.count_at_or_before(key, now - 7 * 24 * 3600)
-        if week_ago is not None:
-            lines.append(f"7 Tage: {current - week_ago:+,}".replace(",", "."))
+            week_ago = await db.count_at_or_before(key, now - 7 * 24 * 3600)
+            if week_ago is not None:
+                lines.append(f"7 Tage: {current - week_ago:+,}".replace(",", "."))
 
-        embed.add_field(name=f"{emoji} {label}", value="\n".join(lines), inline=True)
+            embed.add_field(name=f"{emoji} {label}", value="\n".join(lines), inline=True)
+        except Exception as e:
+            # Ein DB-Fehler (z.B. MySQL kurzzeitig nicht erreichbar) soll nicht
+            # den ganzen Command scheitern lassen - stattdessen pro Plattform
+            # anzeigen, dass gerade keine Daten verfuegbar sind.
+            db_error = True
+            update_logger.error("DB-Fehler bei /statistik social (%s): %s", key, e)
+            embed.add_field(name=f"{emoji} {label}", value="⚠️ Datenbank aktuell nicht erreichbar", inline=True)
 
-    if not has_data:
+    if not has_data and not db_error:
         embed.description = "Noch keine Statistikdaten vorhanden - der erste Update-Zyklus muss zuerst durchlaufen."
 
     return embed
@@ -257,20 +276,47 @@ async def syncfollower(interaction: discord.Interaction) -> None:
     await interaction.followup.send(embed=embed)
 
 
+async def _respond_with_error(interaction: discord.Interaction, message: str) -> None:
+    """Antwortet auf eine fehlgeschlagene Interaktion, egal ob response.send_message
+    schon benutzt wurde (z.B. per defer()) oder nicht - sonst zeigt Discord dem
+    Nutzer nur "Diese Interaktion ist fehlgeschlagen" ohne jede Erklaerung."""
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except discord.HTTPException:
+        pass
+
+
 @syncfollower.error
 async def syncfollower_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError) -> None:
     if isinstance(error, discord.app_commands.CommandOnCooldown):
-        await interaction.response.send_message(
-            f"⏳ Bitte warte noch {error.retry_after:.0f}s, bevor du erneut manuell synchronisierst.",
-            ephemeral=True,
+        await _respond_with_error(
+            interaction, f"⏳ Bitte warte noch {error.retry_after:.0f}s, bevor du erneut manuell synchronisierst."
         )
     elif isinstance(error, discord.app_commands.MissingPermissions):
-        await interaction.response.send_message(
-            "❌ Dafuer fehlt dir die Berechtigung 'Manage Channels'.", ephemeral=True
-        )
+        await _respond_with_error(interaction, "❌ Dafuer fehlt dir die Berechtigung 'Manage Channels'.")
     else:
-        update_logger.error("Unerwarteter Fehler bei /syncfollower: %s", error)
-        raise error
+        update_logger.error("Unerwarteter Fehler bei /syncfollower: %s", error, exc_info=error)
+        await _respond_with_error(interaction, "⚠️ Unerwarteter Fehler beim Sync. Details siehe Bot-Log.")
+
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError) -> None:
+    """Auffangnetz fuer alle Slash-Commands ohne eigenen Error-Handler (z.B.
+    /statistik social). Ohne das bleibt eine fehlgeschlagene Interaktion fuer
+    den Nutzer als 'Diese Interaktion ist fehlgeschlagen' ohne Erklaerung stehen,
+    waehrend der eigentliche Fehler nur in den Server-Logs sichtbar ist."""
+    command_name = interaction.command.qualified_name if interaction.command else "unbekannt"
+    if isinstance(error, discord.app_commands.CommandOnCooldown):
+        await _respond_with_error(interaction, f"⏳ Bitte warte noch {error.retry_after:.0f}s.")
+    elif isinstance(error, discord.app_commands.MissingPermissions):
+        await _respond_with_error(interaction, "❌ Dafuer fehlt dir die noetige Berechtigung.")
+    else:
+        update_logger.error("Unerwarteter Fehler bei /%s: %s", command_name, error, exc_info=error)
+        await _respond_with_error(interaction, "⚠️ Unerwarteter Fehler bei der Ausfuehrung. Details siehe Bot-Log.")
+
 
 _commands_synced = False
 _discord_log_attached = False
@@ -310,11 +356,24 @@ async def on_ready() -> None:
             synced = await bot.tree.sync(guild=guild)
             logger.info("%s Slash-Command(s) fuer Guild %s synchronisiert", len(synced), config.GUILD_ID)
             _commands_synced = True
-        except discord.HTTPException as e:
-            logger.warning("Slash-Command-Sync fehlgeschlagen: %s", e)
+        except Exception as e:
+            # Bleibt _commands_synced=False, damit der naechste on_ready
+            # (z.B. nach einem Gateway-Reconnect) den Sync erneut versucht -
+            # ohne das wuerden Slash-Commands nach einem fehlgeschlagenen Sync
+            # fuer die gesamte Laufzeit des Prozesses fehlen.
+            logger.error("Slash-Command-Sync fehlgeschlagen, wird beim naechsten Reconnect erneut versucht: %s", e)
 
     if not update_followers.is_running():
         update_followers.start()
+
+
+@bot.event
+async def on_error(event_method: str, *args, **kwargs) -> None:
+    # Ersetzt Discord.py's Default-Handler (druckt nur nach stderr) durch
+    # unseren Logger, damit unerwartete Fehler in Event-Handlern (z.B.
+    # on_ready) auch im Discord-Log-Channel sichtbar werden statt nur in
+    # 'pm2 logs'.
+    logger.exception("Unerwarteter Fehler in Event-Handler '%s'", event_method)
 
 
 if __name__ == "__main__":
