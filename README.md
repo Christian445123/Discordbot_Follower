@@ -27,8 +27,9 @@ pro 5 Minuten).
 | `platforms.py` | Abruf der Follower-/Abonnentenzahlen je Plattform |
 | `db.py` | Speichert jeden Abruf in MySQL und liest den Verlauf fuer `/statistik social` |
 | `schema.sql` | Optionales manuelles SQL-Setup (identisch zu dem, was `db.py` automatisch anlegt) |
-| `ecosystem.config.js` | PM2-Konfiguration fuer den Dauerbetrieb auf dem Server |
+| `ecosystem.config.js` | PM2-Konfiguration fuer den Dauerbetrieb auf dem Server (inkl. taeglichem Neustart) |
 | `deploy.sh` | Holt per Cron periodisch neue Commits und startet den Bot bei Aenderungen neu |
+| `watchdog.sh` | Prueft per Cron, ob die Slash-Commands bei Discord noch registriert sind, und startet bei Ausfall neu |
 
 Jede Plattform ist unabhaengig: Ist ihre Channel-ID (oder ein anderer
 Pflichtwert) nicht gesetzt, wird sie automatisch uebersprungen.
@@ -120,6 +121,44 @@ Intervall nach Bedarf aendern (z. B. `*/15` fuer alle 15 Minuten). Logs dazu:
 ```bash
 tail -f logs/deploy.log
 ```
+
+### 7. Automatischer Neustart bei Ausfall (watchdog.sh)
+
+Zusaetzlich zu `deploy.sh` (startet nur bei neuen Commits neu) sorgen zwei
+weitere Sicherheitsnetze dafuer, dass der Bot nicht dauerhaft offline bleibt:
+
+- **Taeglicher Neustart um Mitternacht**: `ecosystem.config.js` setzt
+  `cron_restart: '0 0 * * *'` - PM2 startet den Bot dafuer automatisch selbst
+  neu, ohne zusaetzlichen Cronjob (Serverzeitzone).
+- **`watchdog.sh`**: fragt periodisch direkt bei der Discord-API nach, ob die
+  Slash-Commands fuer die Guild ueberhaupt noch registriert sind (nicht nur,
+  ob der Prozess laeuft) und startet per `pm2 restart` neu, falls nicht.
+  Deckt damit auch Faelle ab, in denen der Prozess zwar laeuft, der
+  Command-Sync beim Start aber dauerhaft fehlgeschlagen ist.
+
+```bash
+chmod +x watchdog.sh   # nur beim allerersten Mal noetig
+crontab -e
+```
+
+Zeile eintragen (Pfad anpassen, alle 5 Minuten reicht):
+
+```
+*/5 * * * * /pfad/zu/Discordbot_Follower/watchdog.sh
+```
+
+Meldet - wie `deploy.sh` - ausgeloeste Neustarts zusaetzlich in
+`DISCORD_LOG_WEBHOOK_URL`, falls konfiguriert. Logs dazu:
+
+```bash
+tail -f logs/watchdog.log
+```
+
+Ausserdem gibt PM2 nach wiederholten Abstuerzen nicht mehr dauerhaft auf:
+`max_restarts` ist grosszuegig hoch gesetzt und `exp_backoff_restart_delay`
+sorgt dafuer, dass PM2 bei einem kurzen Crash-Loop (z. B. DB beim Start kurz
+nicht erreichbar) die Wartezeit zwischen Versuchen automatisch erhoeht statt
+sofort aufzugeben.
 
 Optional meldet `deploy.sh` gefundene Updates zusaetzlich in den Discord-Log-Channel
 (siehe unten) - dafuer `DISCORD_LOG_WEBHOOK_URL` in der `.env` setzen:
