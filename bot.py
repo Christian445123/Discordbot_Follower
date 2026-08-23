@@ -353,6 +353,16 @@ async def before_resync_commands_watchdog() -> None:
     await bot.wait_until_ready()
 
 
+@resync_commands_watchdog.error
+async def resync_commands_watchdog_error(error: BaseException) -> None:
+    # Gleiches Prinzip wie update_followers_error: tasks.loop() beendet die
+    # Schleife bei einer unbehandelten Exception sonst dauerhaft und
+    # stillschweigend - dann wuerde ein einmal fehlgeschlagener Sync nie wieder
+    # automatisch neu versucht.
+    logger.error("Unerwarteter Fehler im Command-Sync-Watchdog, starte neu: %s", error, exc_info=error)
+    resync_commands_watchdog.restart()
+
+
 @bot.event
 async def on_ready() -> None:
     global _discord_log_attached
@@ -360,32 +370,40 @@ async def on_ready() -> None:
     enabled = [label for _, _, label, cfg in PLATFORM_INFO if cfg.enabled]
     logger.info("Aktive Plattformen: %s", ", ".join(enabled) if enabled else "keine (siehe .env)")
 
-    if config.CHANNEL_ID_LOG and not _discord_log_attached:
-        discord_level = getattr(logging, config.LOG_LEVEL, logging.INFO)
-        formatter = logging.Formatter("%(levelname)s [%(name)s]: %(message)s")
-        follower_channel_id = config.CHANNEL_ID_LOG_FOLLOWER or config.CHANNEL_ID_LOG
-
-        general_handler = DiscordLogHandler(bot, config.CHANNEL_ID_LOG, level=discord_level)
-        general_handler.setFormatter(formatter)
-        general_handler.addFilter(_NamespaceFilter("follower-bot.updates", exclude=True))
-        logger.addHandler(general_handler)
-
-        updates_handler = DiscordLogHandler(bot, follower_channel_id, level=discord_level)
-        updates_handler.setFormatter(formatter)
-        updates_handler.addFilter(_NamespaceFilter("follower-bot.updates"))
-        logger.addHandler(updates_handler)
-
-        _discord_log_attached = True
-        channel = bot.get_channel(config.CHANNEL_ID_LOG)
-        if channel is not None:
-            await channel.send(f"🟢 Bot gestartet (aktive Plattformen: {', '.join(enabled) or 'keine'}).")
-
+    # Kritischer Teil zuerst und unabhaengig vom optionalen Discord-Log weiter
+    # unten: on_ready feuert pro Verbindung nur einmal (kein RESUME-Trigger).
+    # Wuerde eine Exception hier durchschlagen (z.B. weil das Senden der
+    # Start-Nachricht in CHANNEL_ID_LOG fehlschlaegt), blieben Slash-Commands
+    # und der Update-Loop fuer den Rest der Prozesslaufzeit unsynchronisiert.
     await ensure_commands_synced()
 
     if not update_followers.is_running():
         update_followers.start()
     if not resync_commands_watchdog.is_running():
         resync_commands_watchdog.start()
+
+    if config.CHANNEL_ID_LOG and not _discord_log_attached:
+        try:
+            discord_level = getattr(logging, config.LOG_LEVEL, logging.INFO)
+            formatter = logging.Formatter("%(levelname)s [%(name)s]: %(message)s")
+            follower_channel_id = config.CHANNEL_ID_LOG_FOLLOWER or config.CHANNEL_ID_LOG
+
+            general_handler = DiscordLogHandler(bot, config.CHANNEL_ID_LOG, level=discord_level)
+            general_handler.setFormatter(formatter)
+            general_handler.addFilter(_NamespaceFilter("follower-bot.updates", exclude=True))
+            logger.addHandler(general_handler)
+
+            updates_handler = DiscordLogHandler(bot, follower_channel_id, level=discord_level)
+            updates_handler.setFormatter(formatter)
+            updates_handler.addFilter(_NamespaceFilter("follower-bot.updates"))
+            logger.addHandler(updates_handler)
+
+            _discord_log_attached = True
+            channel = bot.get_channel(config.CHANNEL_ID_LOG)
+            if channel is not None:
+                await channel.send(f"🟢 Bot gestartet (aktive Plattformen: {', '.join(enabled) or 'keine'}).")
+        except Exception as e:
+            logger.error("Konnte Discord-Log-Channel nicht anbinden: %s", e, exc_info=e)
 
 
 @bot.event
