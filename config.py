@@ -69,3 +69,19 @@ DB_PORT = _int("DB_PORT", 3306)
 DB_NAME = os.getenv("DB_NAME", "")
 DB_USER = os.getenv("DB_USER", "")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+
+# ---------------- Webpanel (optional) ----------------
+# Kleines Admin-Panel mit Discord-Login: nur Mitglieder mit ROLE_ADMIN_ID
+# koennen den Bot neustarten, Slash-Commands neu registrieren, per Git
+# deployen oder einen Follower-Sync anstossen (siehe webpanel.py).
+WEB_ENABLED = os.getenv("WEB_ENABLED", "false").strip().lower() in ("1", "true", "yes", "ja")
+WEB_PORT = _int("WEB_PORT", 3000)
+WEB_BASE_URL = os.getenv("WEB_BASE_URL", f"http://localhost:{WEB_PORT}").strip().rstrip("/")
+# Discord Developer Portal -> Applications -> deine App -> OAuth2
+DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "").strip()
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "").strip()
+# Zufaelliger, langer String zum Signieren der Session-Cookies, z.B. per
+# `python -c "import secrets; print(secrets.token_hex(32))"` erzeugen.
+SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip()
+# Rolle, deren Mitglieder Zugriff auf das Webpanel haben
+ROLE_ADMIN_ID = _int("ROLE_ADMIN_ID")

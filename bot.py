@@ -26,6 +26,7 @@ from discord.ext import tasks, commands
 import config
 import db
 import platforms
+import webpanel
 
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL, logging.INFO),
@@ -320,6 +321,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
 
 _commands_synced = False
 _discord_log_attached = False
+_webpanel_started = False
 
 
 async def ensure_commands_synced() -> None:
@@ -340,6 +342,21 @@ async def ensure_commands_synced() -> None:
         _commands_synced = True
     except Exception as e:
         logger.error("Slash-Command-Sync fehlgeschlagen, naechster Versuch in wenigen Minuten: %s", e)
+
+
+async def force_resync_commands() -> int:
+    """Erzwingt eine vollstaendige Neu-Registrierung der Slash-Commands bei
+    Discord, unabhaengig vom _commands_synced-Status. Anders als
+    ensure_commands_synced() faengt diese Funktion Fehler NICHT selbst ab,
+    sondern gibt sie weiter - genutzt vom Webpanel-Button 'Slash-Commands
+    wiederherstellen', wo ein echter Fehler dem Nutzer angezeigt werden soll,
+    statt still im Log zu verschwinden."""
+    global _commands_synced
+    guild = discord.Object(id=config.GUILD_ID)
+    bot.tree.copy_global_to(guild=guild)
+    synced = await bot.tree.sync(guild=guild)
+    _commands_synced = True
+    return len(synced)
 
 
 @tasks.loop(minutes=10)
@@ -365,7 +382,7 @@ async def resync_commands_watchdog_error(error: BaseException) -> None:
 
 @bot.event
 async def on_ready() -> None:
-    global _discord_log_attached
+    global _discord_log_attached, _webpanel_started
     logger.info("Eingeloggt als %s (ID: %s)", bot.user, bot.user.id if bot.user else "?")
     enabled = [label for _, _, label, cfg in PLATFORM_INFO if cfg.enabled]
     logger.info("Aktive Plattformen: %s", ", ".join(enabled) if enabled else "keine (siehe .env)")
@@ -404,6 +421,15 @@ async def on_ready() -> None:
                 await channel.send(f"🟢 Bot gestartet (aktive Plattformen: {', '.join(enabled) or 'keine'}).")
         except Exception as e:
             logger.error("Konnte Discord-Log-Channel nicht anbinden: %s", e, exc_info=e)
+
+    if config.WEB_ENABLED and not _webpanel_started:
+        try:
+            await webpanel.start_webpanel(
+                bot, force_resync_commands=force_resync_commands, sync_followers=sync_followers
+            )
+            _webpanel_started = True
+        except Exception as e:
+            logger.error("Webpanel konnte nicht gestartet werden: %s", e, exc_info=e)
 
 
 @bot.event

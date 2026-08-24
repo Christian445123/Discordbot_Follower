@@ -30,6 +30,7 @@ pro 5 Minuten).
 | `ecosystem.config.js` | PM2-Konfiguration fuer den Dauerbetrieb auf dem Server (inkl. taeglichem Neustart) |
 | `deploy.sh` | Holt per Cron periodisch neue Commits und startet den Bot bei Aenderungen neu |
 | `watchdog.sh` | Prueft per Cron, ob die Slash-Commands bei Discord noch registriert sind, und startet bei Ausfall neu |
+| `webpanel.py` | Optionales Admin-Webpanel mit Discord-Login (siehe Abschnitt "Webpanel" unten) |
 
 Jede Plattform ist unabhaengig: Ist ihre Channel-ID (oder ein anderer
 Pflichtwert) nicht gesetzt, wird sie automatisch uebersprungen.
@@ -170,6 +171,36 @@ Das ist noetig, weil `deploy.sh` als eigenstaendiges Cron-Skript laeuft, ohne
 Zugriff auf den Bot-Prozess/dessen Discord-Verbindung - ein Webhook ist der
 einfachste Weg, trotzdem in denselben Channel zu posten.
 
+### 8. Webpanel (optional)
+
+`webpanel.py` startet - falls aktiviert - im selben Prozess wie der Bot ein
+kleines Admin-Panel unter `WEB_BASE_URL`. Zugriff nur per Discord-Login und
+nur fuer Mitglieder mit der Rolle `ROLE_ADMIN_ID`. Von dort aus:
+
+- 🔄 **Follower jetzt synchronisieren** - wie `/syncfollower`, ohne Discord.
+- 🔁 **Slash-Commands wiederherstellen** - erzwingt eine Neu-Registrierung bei Discord (z. B. falls sie mal verschwunden sind).
+- 🚀 **Deployen (git pull)** - holt den neuesten Stand vom `main`-Branch (nur Fast-Forward), installiert bei geaenderter `requirements.txt` automatisch nach und startet den Bot bei Aenderungen neu. Ergaenzt `deploy.sh` (Cron) um einen Button fuer "jetzt sofort".
+- ♻️ **Bot neustarten** - beendet den Prozess sauber, PM2 (`autorestart: true`) startet ihn neu.
+
+Alle Aktionen werden zusaetzlich als Embed in `CHANNEL_ID_LOG` gepostet.
+
+**Einrichtung:**
+
+1. In der [Discord Developer Console](https://discord.com/developers/applications) bei der bestehenden Anwendung unter **OAuth2 → General** die Redirect-URL `<WEB_BASE_URL>/auth/callback` eintragen (exakt, inkl. `http(s)://` und Port) und **Client ID** + **Client Secret** notieren.
+2. In der `.env` setzen:
+   ```
+   WEB_ENABLED=true
+   WEB_BASE_URL=https://deine-domain.tld        # oder http://server-ip:3000 zum Testen
+   DISCORD_CLIENT_ID=...
+   DISCORD_CLIENT_SECRET=...
+   ROLE_ADMIN_ID=...                             # Rollen-ID mit Zugriff
+   ```
+   `SESSION_SECRET` ist bereits automatisch befuellt (signiert die Session-Cookies) - nur bei Bedarf per `openssl rand -hex 32` neu erzeugen (invalidiert dann alle eingeloggten Sessions).
+3. `WEB_PORT` (Default `3000`) muss vom Browser aus erreichbar sein - entweder per Firewall-Freigabe direkt, oder besser per Reverse Proxy (z. B. nginx) mit TLS-Terminierung, damit die Session-Cookies ueber HTTPS laufen. Bei einer `WEB_BASE_URL` mit `https://` werden die Cookies automatisch als `Secure` gesetzt.
+4. `pm2 restart follower-bot` - das Panel startet danach automatisch mit (siehe Log: `Webpanel laeuft auf ...`).
+
+Ist `WEB_ENABLED=true`, aber `DISCORD_CLIENT_ID`/`DISCORD_CLIENT_SECRET`/`SESSION_SECRET`/`ROLE_ADMIN_ID` fehlen, bleibt nur das Webpanel deaktiviert (Meldung im Log) - der Rest des Bots startet trotzdem normal.
+
 ## Konfigurationsuebersicht
 
 | Variable | Beschreibung |
@@ -184,6 +215,10 @@ einfachste Weg, trotzdem in denselben Channel zu posten.
 | `CHANNEL_ID_INSTAGRAM`, `INSTAGRAM_USERNAME`, `INSTAGRAM_COOKIE` | Instagram-Channel + Benutzername + optionaler Login-Cookie (siehe oben) |
 | `CHANNEL_ID_TIKTOK`, `TIKTOK_USERNAME` | TikTok-Channel + Benutzername |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Zugangsdaten der MySQL-Datenbank fuer die Statistik-Historie |
+| `WEB_ENABLED`, `WEB_PORT`, `WEB_BASE_URL` | Admin-Webpanel an/aus, Port, oeffentliche Basis-URL (siehe Abschnitt "Webpanel") |
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | OAuth2-Zugangsdaten der Discord-Anwendung fuer den Webpanel-Login |
+| `SESSION_SECRET` | Signaturschluessel fuer die Session-Cookies des Webpanels |
+| `ROLE_ADMIN_ID` | Rolle, deren Mitglieder Zugriff auf das Webpanel haben |
 
 ## Discord-Log-Channel
 
