@@ -209,41 +209,54 @@ async def update_followers_error(error: BaseException) -> None:
     update_followers.restart()
 
 
-async def build_statistik_embed(title: str = "📊 Social Media Statistik") -> discord.Embed:
-    embed = discord.Embed(title=title, color=discord.Color.blurple())
+async def gather_follower_stats() -> list[dict]:
+    """Sammelt aktuelle Follower-Zahl + 24h-/7-Tage-Veraenderung je aktivierter
+    Plattform aus der DB. Gemeinsame Datengrundlage fuer /statistik social
+    (Discord-Embed) und die Follower-Anzeige im Webpanel-Dashboard."""
     now = int(time.time())
-    has_data = False
-
-    db_error = False
+    stats: list[dict] = []
     for key, emoji, label, cfg in PLATFORM_INFO:
         if not cfg.enabled:
             continue
-
+        entry = {"key": key, "emoji": emoji, "label": label, "current": None, "day_delta": None, "week_delta": None, "error": False}
         try:
             current = await db.latest(key)
-            if current is None:
-                embed.add_field(name=f"{emoji} {label}", value="Noch keine Daten erfasst", inline=False)
-                continue
-
-            has_data = True
-            lines = [f"Aktuell: **{current:,}**".replace(",", ".")]
-
-            day_ago = await db.count_at_or_before(key, now - 24 * 3600)
-            if day_ago is not None:
-                lines.append(f"24h: {current - day_ago:+,}".replace(",", "."))
-
-            week_ago = await db.count_at_or_before(key, now - 7 * 24 * 3600)
-            if week_ago is not None:
-                lines.append(f"7 Tage: {current - week_ago:+,}".replace(",", "."))
-
-            embed.add_field(name=f"{emoji} {label}", value="\n".join(lines), inline=True)
+            entry["current"] = current
+            if current is not None:
+                day_ago = await db.count_at_or_before(key, now - 24 * 3600)
+                if day_ago is not None:
+                    entry["day_delta"] = current - day_ago
+                week_ago = await db.count_at_or_before(key, now - 7 * 24 * 3600)
+                if week_ago is not None:
+                    entry["week_delta"] = current - week_ago
         except Exception as e:
             # Ein DB-Fehler (z.B. MySQL kurzzeitig nicht erreichbar) soll nicht
-            # den ganzen Command scheitern lassen - stattdessen pro Plattform
-            # anzeigen, dass gerade keine Daten verfuegbar sind.
-            db_error = True
-            update_logger.error("DB-Fehler bei /statistik social (%s): %s", key, e)
-            embed.add_field(name=f"{emoji} {label}", value="⚠️ Datenbank aktuell nicht erreichbar", inline=True)
+            # den ganzen Abruf scheitern lassen - stattdessen pro Plattform
+            # markieren, dass gerade keine Daten verfuegbar sind.
+            entry["error"] = True
+            update_logger.error("DB-Fehler beim Abruf der Follower-Statistik (%s): %s", key, e)
+        stats.append(entry)
+    return stats
+
+
+async def build_statistik_embed(title: str = "📊 Social Media Statistik") -> discord.Embed:
+    embed = discord.Embed(title=title, color=discord.Color.blurple())
+    stats = await gather_follower_stats()
+    has_data = any(s["current"] is not None for s in stats)
+    db_error = any(s["error"] for s in stats)
+
+    for s in stats:
+        if s["error"]:
+            embed.add_field(name=f"{s['emoji']} {s['label']}", value="⚠️ Datenbank aktuell nicht erreichbar", inline=True)
+        elif s["current"] is None:
+            embed.add_field(name=f"{s['emoji']} {s['label']}", value="Noch keine Daten erfasst", inline=False)
+        else:
+            lines = [f"Aktuell: **{s['current']:,}**".replace(",", ".")]
+            if s["day_delta"] is not None:
+                lines.append(f"24h: {s['day_delta']:+,}".replace(",", "."))
+            if s["week_delta"] is not None:
+                lines.append(f"7 Tage: {s['week_delta']:+,}".replace(",", "."))
+            embed.add_field(name=f"{s['emoji']} {s['label']}", value="\n".join(lines), inline=True)
 
     if not has_data and not db_error:
         embed.description = "Noch keine Statistikdaten vorhanden - der erste Update-Zyklus muss zuerst durchlaufen."
@@ -425,7 +438,10 @@ async def on_ready() -> None:
     if config.WEB_ENABLED and not _webpanel_started:
         try:
             await webpanel.start_webpanel(
-                bot, force_resync_commands=force_resync_commands, sync_followers=sync_followers
+                bot,
+                force_resync_commands=force_resync_commands,
+                sync_followers=sync_followers,
+                gather_follower_stats=gather_follower_stats,
             )
             _webpanel_started = True
         except Exception as e:

@@ -256,6 +256,13 @@ def _page_shell(title: str, body: str, wide: bool = False) -> str:
   .btn.restart:hover {{ background: #63272e; }}
   .result {{ margin-top: 4px; font-size: 0.82rem; white-space: pre-wrap; font-family: ui-monospace, monospace; min-height: 1em; }}
   .forbidden {{ text-align: center; padding: 20px 0; }}
+  .section-title {{ font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: #9098ab; margin: 24px 0 10px; font-weight: 600; }}
+  .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }}
+  .stat-card {{ background: #20232f; border: 1px solid #2a2e3d; border-radius: 10px; padding: 14px; text-align: center; }}
+  .stat-emoji {{ font-size: 1.3rem; }}
+  .stat-value {{ font-size: 1.5rem; font-weight: 700; margin-top: 2px; }}
+  .stat-label {{ color: #9098ab; font-size: 0.78rem; margin-top: 2px; }}
+  .stat-delta {{ color: #9098ab; font-size: 0.75rem; margin-top: 4px; }}
 </style>
 </head>
 <body>
@@ -291,6 +298,38 @@ def _render_home_page(session: dict) -> str:
     )
 
 
+def _format_delta(value: Optional[int]) -> str:
+    if value is None:
+        return ""
+    sign = "+" if value >= 0 else ""
+    return f"{sign}{value:,}".replace(",", ".")
+
+
+def _render_follower_stats(stats: list) -> str:
+    if not stats:
+        return '<p class="hint">Keine Plattform aktiviert (siehe .env).</p>'
+    cards = []
+    for s in stats:
+        if s["error"]:
+            body = '<div class="stat-value">⚠️</div><div class="stat-label">DB nicht erreichbar</div>'
+        elif s["current"] is None:
+            body = '<div class="stat-value">–</div><div class="stat-label">Noch keine Daten</div>'
+        else:
+            current_str = f"{s['current']:,}".replace(",", ".")
+            deltas = []
+            if s["day_delta"] is not None:
+                deltas.append(f"24h: {_format_delta(s['day_delta'])}")
+            if s["week_delta"] is not None:
+                deltas.append(f"7T: {_format_delta(s['week_delta'])}")
+            delta_html = f'<div class="stat-delta">{" &middot; ".join(deltas)}</div>' if deltas else ""
+            body = f'<div class="stat-value">{current_str}</div>{delta_html}'
+        cards.append(
+            f'<div class="stat-card"><div class="stat-emoji">{s["emoji"]}</div>'
+            f'<div class="stat-label">{html.escape(s["label"])}</div>{body}</div>'
+        )
+    return f'<div class="stats-grid">{"".join(cards)}</div>'
+
+
 def _render_forbidden_page() -> str:
     return _page_shell(
         "Kein Zugriff",
@@ -306,7 +345,7 @@ def _render_forbidden_page() -> str:
 
 _STAFF_ACTIONS_AND_SCRIPT = """
 <div class="actions">
-  <button id="syncBtn" class="btn sync" onclick="runSimple('sync-followers', 'syncBtn', 'syncResult', '🔄 Follower jetzt synchronisieren')">🔄 Follower jetzt synchronisieren</button>
+  <button id="syncBtn" class="btn sync" onclick="runSimple('sync-followers', 'syncBtn', 'syncResult', true)">🔄 Follower jetzt synchronisieren</button>
   <div id="syncResult" class="result"></div>
 
   <button id="resyncBtn" class="btn resync" onclick="runResync()">🔁 Slash-Commands wiederherstellen</button>
@@ -325,7 +364,7 @@ _STAFF_ACTIONS_AND_SCRIPT = """
     return res.json();
   }
 
-  async function runSimple(path, btnId, resultId, doneLabel) {
+  async function runSimple(path, btnId, resultId, reloadOnSuccess) {
     const btn = document.getElementById(btnId);
     const result = document.getElementById(resultId);
     btn.disabled = true;
@@ -336,6 +375,7 @@ _STAFF_ACTIONS_AND_SCRIPT = """
       if (data.ok) {
         result.style.color = '#6fe39b';
         result.textContent = '✅ Fertig.';
+        if (reloadOnSuccess) { setTimeout(() => location.reload(), 1200); return; }
       } else {
         result.style.color = '#e74c3c';
         result.textContent = '❌ ' + (data.error || 'Unbekannter Fehler');
@@ -425,16 +465,18 @@ _STAFF_ACTIONS_AND_SCRIPT = """
 """
 
 
-def _render_staff_page(username: str) -> str:
+def _render_staff_page(username: str, stats: list) -> str:
     header = f"""
     <h1>📊 Admin Dashboard</h1>
     <p class="sub">Angemeldet als {html.escape(username)}</p>
+    <div class="section-title">Follower</div>
+    {_render_follower_stats(stats)}
     """
     return _page_shell("Admin Dashboard", header + _STAFF_ACTIONS_AND_SCRIPT, wide=True)
 
 
 # ---------------- Server ----------------
-def _build_app(bot: commands.Bot, force_resync_commands, sync_followers) -> web.Application:
+def _build_app(bot: commands.Bot, force_resync_commands, sync_followers, gather_follower_stats) -> web.Application:
     app = web.Application()
 
     async def index(request: web.Request) -> web.StreamResponse:
@@ -496,7 +538,12 @@ def _build_app(bot: commands.Bot, force_resync_commands, sync_followers) -> web.
             raise web.HTTPFound("/login")
         if not session.get("is_admin"):
             return web.Response(text=_render_forbidden_page(), content_type="text/html", status=403)
-        return web.Response(text=_render_staff_page(session.get("username", "?")), content_type="text/html")
+        try:
+            stats = await gather_follower_stats()
+        except Exception as e:
+            logger.error("Webpanel: Follower-Statistik konnte nicht geladen werden: %s", e, exc_info=e)
+            stats = []
+        return web.Response(text=_render_staff_page(session.get("username", "?"), stats), content_type="text/html")
 
     def _require_admin(request: web.Request) -> Optional[dict]:
         session = _read_session(request)
@@ -579,7 +626,7 @@ def _build_app(bot: commands.Bot, force_resync_commands, sync_followers) -> web.
     return app
 
 
-async def start_webpanel(bot: commands.Bot, *, force_resync_commands, sync_followers) -> None:
+async def start_webpanel(bot: commands.Bot, *, force_resync_commands, sync_followers, gather_follower_stats) -> None:
     """Startet das Webpanel als aiohttp-Server im selben Event-Loop wie der
     Bot. Prueft vorher, ob alle noetigen .env-Variablen gesetzt sind - fehlt
     etwas, bleibt das Panel deaktiviert statt den ganzen Bot am Start zu
@@ -602,7 +649,7 @@ async def start_webpanel(bot: commands.Bot, *, force_resync_commands, sync_follo
         logger.error("WEB_ENABLED=true, aber es fehlen: %s. Webpanel bleibt deaktiviert.", ", ".join(missing))
         return
 
-    app = _build_app(bot, force_resync_commands, sync_followers)
+    app = _build_app(bot, force_resync_commands, sync_followers, gather_follower_stats)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", config.WEB_PORT)
