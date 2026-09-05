@@ -369,24 +369,47 @@ _STAFF_CHART_SECTION = """
 <div class="chart-wrap">
   <canvas id="historyChart" height="220"></canvas>
 </div>
+<p id="chartStatus" class="hint" style="margin-top: 8px;"></p>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <script>
   const CHART_COLORS = ['#5865F2', '#57F287', '#FEE75C', '#EB459E', '#ED4245'];
   let historyChart = null;
+
+  function setChartStatus(message, isError) {
+    const el = document.getElementById('chartStatus');
+    el.textContent = message || '';
+    el.style.color = isError ? '#e74c3c' : '';
+  }
 
   async function loadHistory(sinceTs, untilTs) {
     const params = new URLSearchParams();
     if (sinceTs) params.set('since', sinceTs);
     if (untilTs) params.set('until', untilTs);
     const url = '/staff/follower-history' + (params.toString() ? ('?' + params.toString()) : '');
-    let data;
+    setChartStatus('⏳ Lade ...', false);
+    let res, data;
     try {
-      const res = await fetch(url);
+      res = await fetch(url);
       data = await res.json();
     } catch (e) {
+      setChartStatus('❌ Verbindungsfehler beim Laden der Statistik.', true);
       return;
     }
-    if (!data.ok) return;
+    if (!res.ok || !data.ok) {
+      setChartStatus('❌ ' + (data && data.error ? data.error : ('HTTP ' + res.status)), true);
+      return;
+    }
+
+    const hasAnyPoint = Object.values(data.series).some(points => points.length > 0);
+    if (Object.keys(data.series).length === 0) {
+      setChartStatus('⚠️ Keine Plattform aktiviert (siehe .env).', true);
+      return;
+    }
+    if (!hasAnyPoint) {
+      setChartStatus('Keine Datenpunkte in diesem Zeitraum gefunden.', false);
+    } else {
+      setChartStatus('', false);
+    }
 
     // Start-Feld immer auf das Datum des allerersten Messpunkts begrenzen/vorbelegen,
     // Ende-Feld auf heute - damit "Gesamt" per Datumsfeld dem Preset entspricht.
@@ -708,6 +731,7 @@ def _build_app(bot: commands.Bot, force_resync_commands, sync_followers, gather_
     async def api_follower_history(request: web.Request) -> web.Response:
         session = _require_admin(request)
         if not session:
+            logger.warning("Webpanel: /staff/follower-history ohne gueltige Admin-Session aufgerufen.")
             return web.json_response({"ok": False, "error": "Kein Zugriff."}, status=403)
 
         since_param = request.query.get("since")
@@ -734,6 +758,11 @@ def _build_app(bot: commands.Bot, force_resync_commands, sync_followers, gather_
                 continue
             series[f"{emoji} {label}"] = points
 
+        total_points = sum(len(p) for p in series.values())
+        logger.info(
+            "Webpanel: /staff/follower-history angefordert von %s (since=%s, until=%s) -> %s Plattform(en), %s Datenpunkte insgesamt.",
+            session["username"], since, until, len(series), total_points,
+        )
         return web.json_response({"ok": True, "series": series, "earliest": earliest})
 
     async def api_sync_followers(request: web.Request) -> web.Response:
