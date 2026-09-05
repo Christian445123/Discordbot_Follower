@@ -268,6 +268,9 @@ def _page_shell(title: str, body: str, wide: bool = False) -> str:
   .range-btn {{ padding: 6px 14px; border-radius: 999px; border: 1px solid #2a2e3d; background: #20232f; color: #9098ab; font-size: 0.8rem; cursor: pointer; transition: all 0.15s; }}
   .range-btn:hover {{ background: #2a2e3d; color: #e6e6ea; }}
   .range-btn.active {{ background: #5865f2; color: #fff; border-color: #5865f2; }}
+  .range-input {{ padding: 5px 10px; border-radius: 8px; border: 1px solid #2a2e3d; background: #20232f; color: #e6e6ea; font-size: 0.8rem; }}
+  .range-custom {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
+  .range-custom span {{ color: #9098ab; font-size: 0.8rem; }}
   .chart-wrap {{ background: #20232f; border: 1px solid #2a2e3d; border-radius: 10px; padding: 12px; }}
 </style>
 </head>
@@ -357,6 +360,12 @@ _STAFF_CHART_SECTION = """
   <button class="range-btn" data-days="90">90 Tage</button>
   <button class="range-btn active" data-days="all">Gesamt</button>
 </div>
+<div class="range-custom" style="margin-bottom: 14px;">
+  <input type="date" id="rangeFrom" class="range-input">
+  <span>bis</span>
+  <input type="date" id="rangeTo" class="range-input">
+  <button class="range-btn" id="customRangeBtn">Anzeigen</button>
+</div>
 <div class="chart-wrap">
   <canvas id="historyChart" height="220"></canvas>
 </div>
@@ -365,8 +374,11 @@ _STAFF_CHART_SECTION = """
   const CHART_COLORS = ['#5865F2', '#57F287', '#FEE75C', '#EB459E', '#ED4245'];
   let historyChart = null;
 
-  async function loadHistory(sinceTs) {
-    const url = sinceTs ? ('/staff/follower-history?since=' + sinceTs) : '/staff/follower-history';
+  async function loadHistory(sinceTs, untilTs) {
+    const params = new URLSearchParams();
+    if (sinceTs) params.set('since', sinceTs);
+    if (untilTs) params.set('until', untilTs);
+    const url = '/staff/follower-history' + (params.toString() ? ('?' + params.toString()) : '');
     let data;
     try {
       const res = await fetch(url);
@@ -376,10 +388,23 @@ _STAFF_CHART_SECTION = """
     }
     if (!data.ok) return;
 
+    // Start-Feld immer auf das Datum des allerersten Messpunkts begrenzen/vorbelegen,
+    // Ende-Feld auf heute - damit "Gesamt" per Datumsfeld dem Preset entspricht.
+    const fromInput = document.getElementById('rangeFrom');
+    const toInput = document.getElementById('rangeTo');
+    if (data.earliest && !fromInput.value) {
+      const iso = new Date(data.earliest * 1000).toISOString().slice(0, 10);
+      fromInput.min = iso;
+      fromInput.value = iso;
+    }
+    if (!toInput.value) {
+      toInput.value = new Date().toISOString().slice(0, 10);
+    }
+
     const allTsSet = new Set();
     Object.values(data.series).forEach(points => points.forEach(p => allTsSet.add(p[0])));
     const allTs = Array.from(allTsSet).sort((a, b) => a - b);
-    const labels = allTs.map(ts => new Date(ts * 1000).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }));
+    const labels = allTs.map(ts => new Date(ts * 1000).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: '2-digit' }));
 
     const datasets = Object.entries(data.series).map(([label, points], i) => {
       const byTs = new Map(points);
@@ -411,20 +436,30 @@ _STAFF_CHART_SECTION = """
     });
   }
 
-  document.querySelectorAll('.range-btn').forEach(btn => {
+  document.querySelectorAll('.range-btn[data-days]').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const days = btn.dataset.days;
       if (days === 'all') {
-        loadHistory(null);
+        loadHistory(null, null);
       } else {
-        loadHistory(Math.floor(Date.now() / 1000) - parseInt(days, 10) * 86400);
+        loadHistory(Math.floor(Date.now() / 1000) - parseInt(days, 10) * 86400, null);
       }
     });
   });
 
-  loadHistory(null);
+  document.getElementById('customRangeBtn').addEventListener('click', () => {
+    const fromVal = document.getElementById('rangeFrom').value;
+    const toVal = document.getElementById('rangeTo').value;
+    if (!fromVal) { alert('Bitte ein Startdatum waehlen.'); return; }
+    document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+    const sinceTs = Math.floor(new Date(fromVal + 'T00:00:00').getTime() / 1000);
+    const untilTs = toVal ? Math.floor(new Date(toVal + 'T23:59:59').getTime() / 1000) : null;
+    loadHistory(sinceTs, untilTs);
+  });
+
+  loadHistory(null, null);
 </script>
 """
 
@@ -676,26 +711,30 @@ def _build_app(bot: commands.Bot, force_resync_commands, sync_followers, gather_
             return web.json_response({"ok": False, "error": "Kein Zugriff."}, status=403)
 
         since_param = request.query.get("since")
+        until_param = request.query.get("until")
         try:
             since = int(since_param) if since_param else None
+            until = int(until_param) if until_param else None
         except ValueError:
-            return web.json_response({"ok": False, "error": "Ungueltiger 'since'-Parameter."}, status=400)
+            return web.json_response({"ok": False, "error": "Ungueltiger Zeitraum-Parameter."}, status=400)
 
         series: dict = {}
+        earliest: Optional[int] = None
         for key, emoji, label, cfg in config.PLATFORM_INFO:
             if not cfg.enabled:
                 continue
             try:
-                range_start = since
-                if range_start is None:
-                    range_start = await db.first_recorded_at(key)
-                points = await db.history(key, range_start if range_start is not None else 0)
+                first_ts = await db.first_recorded_at(key)
+                if first_ts is not None and (earliest is None or first_ts < earliest):
+                    earliest = first_ts
+                range_start = since if since is not None else first_ts
+                points = await db.history(key, range_start if range_start is not None else 0, until)
             except Exception as e:
                 logger.error("Webpanel: Follower-Verlauf (%s) konnte nicht geladen werden: %s", key, e, exc_info=e)
                 continue
             series[f"{emoji} {label}"] = points
 
-        return web.json_response({"ok": True, "series": series})
+        return web.json_response({"ok": True, "series": series, "earliest": earliest})
 
     async def api_sync_followers(request: web.Request) -> web.Response:
         session = _require_admin(request)

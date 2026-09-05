@@ -123,15 +123,23 @@ async def first_recorded_at(platform: str) -> Optional[int]:
             return row[0] if row else None
 
 
-async def history(platform: str, since_timestamp: int) -> list[tuple[int, int]]:
-    """Alle Messpunkte einer Plattform seit 'since_timestamp', aufsteigend
-    nach Zeit sortiert - Grundlage fuer den Verlaufs-Graf in /statistik social."""
+async def history(platform: str, since_timestamp: int, until_timestamp: Optional[int] = None) -> list[tuple[int, int]]:
+    """Messpunkte einer Plattform im Zeitraum [since_timestamp, until_timestamp],
+    aufsteigend nach Zeit sortiert. 'until_timestamp' ist optional (None = bis
+    jetzt) - Grundlage fuer den Verlaufs-Graf im Webpanel mit waehlbarem
+    Zeitraum (Presets oder eigenes Start-/Enddatum)."""
     table = _table_for(platform)
     pool = await _get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
-            await cur.execute(
-                f"SELECT recorded_at, count FROM {table} WHERE recorded_at >= %s ORDER BY recorded_at ASC",
-                (since_timestamp,),
-            )
+            if until_timestamp is not None:
+                await cur.execute(
+                    f"SELECT recorded_at, count FROM {table} WHERE recorded_at >= %s AND recorded_at <= %s ORDER BY recorded_at ASC",
+                    (since_timestamp, until_timestamp),
+                )
+            else:
+                await cur.execute(
+                    f"SELECT recorded_at, count FROM {table} WHERE recorded_at >= %s ORDER BY recorded_at ASC",
+                    (since_timestamp,),
+                )
             return list(await cur.fetchall())
