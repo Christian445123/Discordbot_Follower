@@ -23,6 +23,7 @@ import os
 import secrets
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode
@@ -214,6 +215,24 @@ async def _run_git_deploy() -> dict:
         "pip_install_ran": pip_install_ran,
         "pip_install_error": pip_install_error,
     }
+
+
+def _aggregate_daily(points: list) -> list:
+    """Fasst mehrere Messpunkte desselben Kalendertags (z.B. bei UPDATE_INTERVAL
+    von wenigen Stunden mehrere pro Tag) zu einem einzigen zusammen - dem
+    letzten Wert des Tages (Endstand). So zeigt der Verlaufs-Graf den
+    taeglichen Zuwachs mit genau einem Datenpunkt pro Tag statt mehrerer
+    dicht beieinanderliegender Punkte.
+
+    'points' muss aufsteigend nach Zeit sortiert sein (wie von db.history()
+    geliefert): dict-Insertion-Order sorgt dann dafuer, dass pro Tag einfach
+    der zuletzt gesehene (=spaeteste) Punkt stehen bleibt, in der richtigen
+    Reihenfolge."""
+    daily: dict[str, tuple[int, int]] = {}
+    for ts, count in points:
+        day_key = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+        daily[day_key] = (ts, count)
+    return list(daily.values())
 
 
 # ---------------- HTML ----------------
@@ -424,16 +443,29 @@ _STAFF_CHART_SECTION = """
       toInput.value = new Date().toISOString().slice(0, 10);
     }
 
-    const allTsSet = new Set();
-    Object.values(data.series).forEach(points => points.forEach(p => allTsSet.add(p[0])));
-    const allTs = Array.from(allTsSet).sort((a, b) => a - b);
-    const labels = allTs.map(ts => new Date(ts * 1000).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: '2-digit' }));
+    // Der Server liefert bereits max. einen Punkt pro Kalendertag je Plattform,
+    // aber die exakten Zeitstempel koennen sich leicht unterscheiden (je nachdem
+    // in welcher Reihenfolge die Plattformen im selben Sync-Zyklus geschrieben
+    // wurden) - daher hier nach Tag (nicht nach exaktem Timestamp) ausrichten,
+    // damit beide Linien auf denselben X-Positionen liegen.
+    function dayKey(ts) {
+      const d = new Date(ts * 1000);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    const allDaysSet = new Set();
+    Object.values(data.series).forEach(points => points.forEach(p => allDaysSet.add(dayKey(p[0]))));
+    const allDays = Array.from(allDaysSet).sort();
+    const labels = allDays.map(dayStr => {
+      const [y, m, d] = dayStr.split('-');
+      return d + '.' + m + '.' + y.slice(2);
+    });
 
     const datasets = Object.entries(data.series).map(([label, points], i) => {
-      const byTs = new Map(points);
+      const byDay = new Map(points.map(p => [dayKey(p[0]), p[1]]));
       return {
         label,
-        data: allTs.map(ts => byTs.has(ts) ? byTs.get(ts) : null),
+        data: allDays.map(dayStr => byDay.has(dayStr) ? byDay.get(dayStr) : null),
         spanGaps: true,
         borderColor: CHART_COLORS[i % CHART_COLORS.length],
         backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
@@ -758,6 +790,7 @@ def _build_app(bot: commands.Bot, force_resync_commands, sync_followers, gather_
                     earliest = first_ts
                 range_start = since if since is not None else first_ts
                 points = await db.history(key, range_start if range_start is not None else 0, until)
+                points = _aggregate_daily(points)
             except Exception as e:
                 logger.error("Webpanel: Follower-Verlauf (%s) konnte nicht geladen werden: %s", key, e, exc_info=e)
                 continue
