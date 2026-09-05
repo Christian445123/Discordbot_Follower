@@ -109,3 +109,17 @@ async def count_at_or_before(platform: str, timestamp: int) -> Optional[int]:
             )
             row = await cur.fetchone()
             return row[0] if row else None
+
+
+async def history(platform: str, since_timestamp: int) -> list[tuple[int, int]]:
+    """Alle Messpunkte einer Plattform seit 'since_timestamp', aufsteigend
+    nach Zeit sortiert - Grundlage fuer den Verlaufs-Graf in /statistik social."""
+    table = _table_for(platform)
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"SELECT recorded_at, count FROM {table} WHERE recorded_at >= %s ORDER BY recorded_at ASC",
+                (since_timestamp,),
+            )
+            return list(await cur.fetchall())

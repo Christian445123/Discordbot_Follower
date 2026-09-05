@@ -23,6 +23,7 @@ import aiohttp
 import discord
 from discord.ext import tasks, commands
 
+import charts
 import config
 import db
 import platforms
@@ -264,15 +265,54 @@ async def build_statistik_embed(title: str = "📊 Social Media Statistik") -> d
     return embed
 
 
+CHART_HISTORY_DAYS = 30
+
+
+async def build_follower_chart_file() -> Optional[discord.File]:
+    """Baut den 30-Tage-Verlaufsgraf als Datei-Anhang fuer /statistik social.
+    Gibt None zurueck, wenn keine Plattform genug Daten hat (z.B. direkt nach
+    dem ersten Bot-Start) - dann wird der Graf einfach weggelassen, statt ein
+    leeres/nichtssagendes Bild zu verschicken."""
+    since = int(time.time()) - CHART_HISTORY_DAYS * 24 * 3600
+    series: dict[str, list[tuple[int, int]]] = {}
+    for key, emoji, label, cfg in PLATFORM_INFO:
+        if not cfg.enabled:
+            continue
+        try:
+            points = await db.history(key, since)
+        except Exception as e:
+            update_logger.error("DB-Fehler beim Laden des Verlaufs fuer den Graf (%s): %s", key, e)
+            continue
+        if len(points) >= 2:
+            series[f"{emoji} {label}"] = points
+
+    if not series:
+        return None
+
+    # matplotlib rendert synchron/CPU-gebunden - ueber to_thread ausgelagert,
+    # damit der Event-Loop (und damit alle anderen Discord-Events) waehrend
+    # des Renderns nicht blockiert.
+    buffer = await asyncio.to_thread(charts.render_follower_chart, series)
+    return discord.File(buffer, filename="follower_chart.png")
+
+
 # ---------------- Slash-Command: /statistik social ----------------
 statistik_group = discord.app_commands.Group(name="statistik", description="Statistiken des Servers")
 
 
-@statistik_group.command(name="social", description="Zeigt die aktuellen Social-Media-Zahlen und ihre Entwicklung")
+@statistik_group.command(
+    name="social",
+    description="Zeigt die aktuellen Social-Media-Zahlen, ihre Entwicklung und den 30-Tage-Verlauf",
+)
 async def statistik_social(interaction: discord.Interaction) -> None:
     await interaction.response.defer()
     embed = await build_statistik_embed()
-    await interaction.followup.send(embed=embed)
+    chart_file = await build_follower_chart_file()
+    if chart_file is not None:
+        embed.set_image(url="attachment://follower_chart.png")
+        await interaction.followup.send(embed=embed, file=chart_file)
+    else:
+        await interaction.followup.send(embed=embed)
 
 
 bot.tree.add_command(statistik_group)

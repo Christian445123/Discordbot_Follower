@@ -12,8 +12,11 @@ Doppelpunkt und Tausenderpunkt funktioniert das nur bei Voice/Stage-Channels.
 Jeder erfolgreiche Abruf wird zusaetzlich in MySQL dokumentiert - pro Plattform
 eine eigene Tabelle (`instagram_history`, `tiktok_history`), wird beim ersten
 Start automatisch angelegt. Ueber den
-Slash-Command `/statistik social` zeigt der Bot die aktuellen Zahlen sowie die
-Entwicklung der letzten 24 Stunden und 7 Tage an. `/syncfollower` stoesst
+Slash-Command `/statistik social` zeigt der Bot die aktuellen Zahlen, die
+Entwicklung der letzten 24 Stunden und 7 Tage sowie einen Verlaufs-Graf der
+letzten 30 Tage (als Bild, gerendert mit matplotlib) an - vorausgesetzt, es
+liegen fuer mindestens eine Plattform schon 2+ Messpunkte in diesem Zeitraum
+vor. `/syncfollower` stoesst
 einen sofortigen Abruf aller Plattformen an, statt auf das naechste
 `UPDATE_INTERVAL` zu warten (Berechtigung "Manage Channels" noetig, max. 1x
 pro 5 Minuten).
