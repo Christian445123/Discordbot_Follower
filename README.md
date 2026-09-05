@@ -29,6 +29,7 @@ pro 5 Minuten).
 | `config.py` | Liest alle Einstellungen aus `.env` |
 | `platforms.py` | Abruf der Follower-/Abonnentenzahlen je Plattform |
 | `db.py` | Speichert jeden Abruf in MySQL und liest den Verlauf fuer `/statistik social` |
+| `charts.py` | Rendert den 30-Tage-Verlaufsgraf (PNG) fuer `/statistik social` |
 | `schema.sql` | Optionales manuelles SQL-Setup (identisch zu dem, was `db.py` automatisch anlegt) |
 | `ecosystem.config.js` | PM2-Konfiguration fuer den Dauerbetrieb auf dem Server (inkl. taeglichem Neustart) |
 | `deploy.sh` | Holt per Cron periodisch neue Commits und startet den Bot bei Aenderungen neu |
