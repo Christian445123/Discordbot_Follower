@@ -42,11 +42,8 @@ update_logger = logging.getLogger("follower-bot.updates")
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# (db_key, Emoji, Anzeigename, Config) - eine Stelle fuer alle Plattform-Metadaten
-PLATFORM_INFO = (
-    ("instagram", "📸", "Instagram", config.INSTAGRAM),
-    ("tiktok", "🎵", "TikTok", config.TIKTOK),
-)
+# In config.py definiert (gemeinsam mit webpanel.py genutzt)
+PLATFORM_INFO = config.PLATFORM_INFO
 
 
 def format_channel_name(emoji: str, label: str, count: int) -> str:

@@ -33,6 +33,7 @@ from aiohttp import web
 from discord.ext import commands
 
 import config
+import db
 
 logger = logging.getLogger("follower-bot.web")
 
@@ -233,7 +234,7 @@ def _page_shell(title: str, body: str, wide: bool = False) -> str:
     color: #e6e6ea; padding: 24px;
   }}
   .card {{ width: 100%; max-width: 480px; background: #171a24; border: 1px solid #2a2e3d; border-radius: 16px; padding: 32px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); }}
-  .card.wide {{ max-width: 640px; }}
+  .card.wide {{ max-width: 760px; }}
   h1 {{ font-size: 1.4rem; margin: 0 0 4px; }}
   .sub {{ color: #9098ab; font-size: 0.9rem; margin-bottom: 24px; }}
   .btn {{ display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px 20px; border-radius: 10px; background: #5865f2; color: #fff; text-decoration: none; font-weight: 600; border: none; cursor: pointer; font-size: 0.95rem; transition: background 0.15s ease; }}
@@ -263,6 +264,11 @@ def _page_shell(title: str, body: str, wide: bool = False) -> str:
   .stat-value {{ font-size: 1.5rem; font-weight: 700; margin-top: 2px; }}
   .stat-label {{ color: #9098ab; font-size: 0.78rem; margin-top: 2px; }}
   .stat-delta {{ color: #9098ab; font-size: 0.75rem; margin-top: 4px; }}
+  .range-buttons {{ display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }}
+  .range-btn {{ padding: 6px 14px; border-radius: 999px; border: 1px solid #2a2e3d; background: #20232f; color: #9098ab; font-size: 0.8rem; cursor: pointer; transition: all 0.15s; }}
+  .range-btn:hover {{ background: #2a2e3d; color: #e6e6ea; }}
+  .range-btn.active {{ background: #5865f2; color: #fff; border-color: #5865f2; }}
+  .chart-wrap {{ background: #20232f; border: 1px solid #2a2e3d; border-radius: 10px; padding: 12px; }}
 </style>
 </head>
 <body>
@@ -341,6 +347,86 @@ def _render_forbidden_page() -> str:
         </div>
         """,
     )
+
+
+_STAFF_CHART_SECTION = """
+<div class="section-title">Follower-Verlauf</div>
+<div class="range-buttons">
+  <button class="range-btn" data-days="7">7 Tage</button>
+  <button class="range-btn" data-days="30">30 Tage</button>
+  <button class="range-btn" data-days="90">90 Tage</button>
+  <button class="range-btn active" data-days="all">Gesamt</button>
+</div>
+<div class="chart-wrap">
+  <canvas id="historyChart" height="220"></canvas>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script>
+  const CHART_COLORS = ['#5865F2', '#57F287', '#FEE75C', '#EB459E', '#ED4245'];
+  let historyChart = null;
+
+  async function loadHistory(sinceTs) {
+    const url = sinceTs ? ('/staff/follower-history?since=' + sinceTs) : '/staff/follower-history';
+    let data;
+    try {
+      const res = await fetch(url);
+      data = await res.json();
+    } catch (e) {
+      return;
+    }
+    if (!data.ok) return;
+
+    const allTsSet = new Set();
+    Object.values(data.series).forEach(points => points.forEach(p => allTsSet.add(p[0])));
+    const allTs = Array.from(allTsSet).sort((a, b) => a - b);
+    const labels = allTs.map(ts => new Date(ts * 1000).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }));
+
+    const datasets = Object.entries(data.series).map(([label, points], i) => {
+      const byTs = new Map(points);
+      return {
+        label,
+        data: allTs.map(ts => byTs.has(ts) ? byTs.get(ts) : null),
+        spanGaps: true,
+        borderColor: CHART_COLORS[i % CHART_COLORS.length],
+        backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+        tension: 0.2,
+        pointRadius: 2,
+      };
+    });
+
+    const ctx = document.getElementById('historyChart').getContext('2d');
+    if (historyChart) historyChart.destroy();
+    historyChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: { ticks: { color: '#9098ab' }, grid: { color: '#2a2e3d' } },
+          y: { ticks: { color: '#9098ab' }, grid: { color: '#2a2e3d' } },
+        },
+        plugins: { legend: { labels: { color: '#e6e6ea' } } },
+      },
+    });
+  }
+
+  document.querySelectorAll('.range-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const days = btn.dataset.days;
+      if (days === 'all') {
+        loadHistory(null);
+      } else {
+        loadHistory(Math.floor(Date.now() / 1000) - parseInt(days, 10) * 86400);
+      }
+    });
+  });
+
+  loadHistory(null);
+</script>
+"""
 
 
 _STAFF_ACTIONS_AND_SCRIPT = """
@@ -471,8 +557,20 @@ def _render_staff_page(username: str, stats: list) -> str:
     <p class="sub">Angemeldet als {html.escape(username)}</p>
     <div class="section-title">Follower</div>
     {_render_follower_stats(stats)}
+    <div class="actions" style="margin-top: 16px;">
+      <a class="btn resync" href="/staff/statistik">📈 Statistik ansehen</a>
+    </div>
     """
     return _page_shell("Admin Dashboard", header + _STAFF_ACTIONS_AND_SCRIPT, wide=True)
+
+
+def _render_staff_statistik_page(username: str) -> str:
+    header = f"""
+    <h1>📈 Follower-Statistik</h1>
+    <p class="sub">Angemeldet als {html.escape(username)}</p>
+    <a class="logout" href="/staff" style="margin-bottom: 16px; display: inline-block;">&larr; Zurueck zum Dashboard</a>
+    """
+    return _page_shell("Follower-Statistik", header + _STAFF_CHART_SECTION, wide=True)
 
 
 # ---------------- Server ----------------
@@ -545,6 +643,14 @@ def _build_app(bot: commands.Bot, force_resync_commands, sync_followers, gather_
             stats = []
         return web.Response(text=_render_staff_page(session.get("username", "?"), stats), content_type="text/html")
 
+    async def staff_statistik_page(request: web.Request) -> web.StreamResponse:
+        session = _read_session(request)
+        if not session.get("uid"):
+            raise web.HTTPFound("/login")
+        if not session.get("is_admin"):
+            return web.Response(text=_render_forbidden_page(), content_type="text/html", status=403)
+        return web.Response(text=_render_staff_statistik_page(session.get("username", "?")), content_type="text/html")
+
     def _require_admin(request: web.Request) -> Optional[dict]:
         session = _read_session(request)
         if not session.get("uid") or not session.get("is_admin"):
@@ -563,6 +669,33 @@ def _build_app(bot: commands.Bot, force_resync_commands, sync_followers, gather_
         logger.warning("Webpanel: %s Slash-Commands neu registriert von %s.", count, session["username"])
         await _notify(bot, "🔁 Slash-Commands neu registriert", f"{count} Command(s) registriert.", 0x3498DB, session["username"])
         return web.json_response({"ok": True, "count": count})
+
+    async def api_follower_history(request: web.Request) -> web.Response:
+        session = _require_admin(request)
+        if not session:
+            return web.json_response({"ok": False, "error": "Kein Zugriff."}, status=403)
+
+        since_param = request.query.get("since")
+        try:
+            since = int(since_param) if since_param else None
+        except ValueError:
+            return web.json_response({"ok": False, "error": "Ungueltiger 'since'-Parameter."}, status=400)
+
+        series: dict = {}
+        for key, emoji, label, cfg in config.PLATFORM_INFO:
+            if not cfg.enabled:
+                continue
+            try:
+                range_start = since
+                if range_start is None:
+                    range_start = await db.first_recorded_at(key)
+                points = await db.history(key, range_start if range_start is not None else 0)
+            except Exception as e:
+                logger.error("Webpanel: Follower-Verlauf (%s) konnte nicht geladen werden: %s", key, e, exc_info=e)
+                continue
+            series[f"{emoji} {label}"] = points
+
+        return web.json_response({"ok": True, "series": series})
 
     async def api_sync_followers(request: web.Request) -> web.Response:
         session = _require_admin(request)
@@ -619,6 +752,8 @@ def _build_app(bot: commands.Bot, force_resync_commands, sync_followers, gather_
     app.router.add_get("/auth/callback", auth_callback)
     app.router.add_get("/logout", logout)
     app.router.add_get("/staff", staff_page)
+    app.router.add_get("/staff/statistik", staff_statistik_page)
+    app.router.add_get("/staff/follower-history", api_follower_history)
     app.router.add_post("/staff/resync-commands", api_resync_commands)
     app.router.add_post("/staff/sync-followers", api_sync_followers)
     app.router.add_post("/staff/deploy", api_deploy)

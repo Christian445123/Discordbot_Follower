@@ -63,6 +63,13 @@ TIKTOK = TikTokConfig(
     username=os.getenv("TIKTOK_USERNAME", "").lstrip("@").strip(),
 )
 
+# (db_key, Emoji, Anzeigename, Config) - eine Stelle fuer alle Plattform-Metadaten,
+# gemeinsam genutzt von bot.py und webpanel.py.
+PLATFORM_INFO = (
+    ("instagram", "📸", "Instagram", INSTAGRAM),
+    ("tiktok", "🎵", "TikTok", TIKTOK),
+)
+
 # ---------------- Datenbank (MySQL) ----------------
 DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
 DB_PORT = _int("DB_PORT", 3306)

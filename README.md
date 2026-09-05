@@ -179,7 +179,11 @@ einfachste Weg, trotzdem in denselben Channel zu posten.
 
 `webpanel.py` startet - falls aktiviert - im selben Prozess wie der Bot ein
 kleines Admin-Panel unter `WEB_BASE_URL`. Zugriff nur per Discord-Login und
-nur fuer Mitglieder mit der Rolle `ROLE_ADMIN_ID`. Von dort aus:
+nur fuer Mitglieder mit der Rolle `ROLE_ADMIN_ID`. Das Dashboard (`/staff`)
+zeigt die aktuellen Follower-Zahlen; der Button "📈 Statistik ansehen" fuehrt
+zu einer eigenen Unterseite (`/staff/statistik`) mit einem interaktiven
+Verlaufs-Graf (Chart.js) mit waehlbarem Zeitraum (7/30/90 Tage oder "Gesamt" -
+Standard, ab dem allerersten erfassten Messpunkt). Ausserdem von dort aus:
 
 - 🔄 **Follower jetzt synchronisieren** - wie `/syncfollower`, ohne Discord.
 - 🔁 **Slash-Commands wiederherstellen** - erzwingt eine Neu-Registrierung bei Discord (z. B. falls sie mal verschwunden sind).
