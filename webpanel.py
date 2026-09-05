@@ -370,7 +370,7 @@ _STAFF_CHART_SECTION = """
   <canvas id="historyChart" height="220"></canvas>
 </div>
 <p id="chartStatus" class="hint" style="margin-top: 8px;"></p>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
   const CHART_COLORS = ['#5865F2', '#57F287', '#FEE75C', '#EB459E', '#ED4245'];
   let historyChart = null;
@@ -441,6 +441,11 @@ _STAFF_CHART_SECTION = """
         pointRadius: 2,
       };
     });
+
+    if (typeof Chart === 'undefined') {
+      setChartStatus('❌ Chart.js konnte nicht geladen werden (CDN blockiert/nicht erreichbar?).', true);
+      return;
+    }
 
     const ctx = document.getElementById('historyChart').getContext('2d');
     if (historyChart) historyChart.destroy();
